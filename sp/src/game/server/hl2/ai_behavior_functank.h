@@ -49,11 +49,6 @@ public:
 	void		BeginScheduleSelection();
 	void		EndScheduleSelection();
 	void		PrescheduleThink();
-#ifdef MAPBASE
-	bool		IsInterruptable( void );
-
-	bool		CanManTank( CFuncTank *pTank, bool bForced );
-#endif
 
 	Activity	NPC_TranslateActivity( Activity activity );
 
@@ -66,9 +61,6 @@ public:
 		SCHED_FIRE_FUNCTANK,
 		SCHED_SCAN_WITH_FUNCTANK,
 		SCHED_FAIL_MOVE_TO_FUNCTANK,
-#ifdef MAPBASE
-		SCHED_FORCE_MOUNT_FUNCTANK,
-#endif
 	};
 	
 	// Tasks
@@ -90,9 +82,6 @@ public:
 	enum
 	{
 		COND_FUNCTANK_DISMOUNT = BaseClass::NEXT_CONDITION,
-#ifdef MAPBASE
-		COND_FUNCTANK_FORCED,
-#endif
 		NEXT_CONDITION,
 	};	
 
@@ -114,12 +103,6 @@ public:
 	bool IsBusy( void )					{ return ( gpGlobals->curtime < m_flBusyTime ); }
 
 	bool IsMounted( void )				{ return m_bMounted; }
-
-#ifdef MAPBASE
-	void SetMounted( bool bMounted )	{ m_bMounted = bMounted; }
-
-	bool CanUnholsterWeapon( void ) { return !IsMounted(); }
-#endif
 
 private:
 	

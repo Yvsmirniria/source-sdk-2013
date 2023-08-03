@@ -19,6 +19,7 @@ class IEngineSound;
 class IMapData;
 
 extern IFileSystem				*filesystem;
+extern IFileSystem              *mmfs;
 #if defined(_STATIC_LINKED) && defined(_SUBSYSTEM) && (defined(CLIENT_DLL) || defined(GAME_DLL))
 namespace _SUBSYSTEM
 {

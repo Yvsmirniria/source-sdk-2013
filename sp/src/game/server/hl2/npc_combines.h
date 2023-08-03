@@ -35,9 +35,7 @@ public:
 	void		Event_Killed( const CTakeDamageInfo &info );
 	void		OnListened();
 
-#ifndef MAPBASE // Moved to CAI_GrenadeUser
 	void		ClearAttackConditions( void );
-#endif
 
 	bool		m_fIsBlocking;
 
@@ -57,6 +55,8 @@ protected:
 	/// whether to use the more casual march anim in ep2_outland_05
 	int			m_iUseMarch;
 #endif
+
+	static int m_iBonusHunters;
 
 };
 

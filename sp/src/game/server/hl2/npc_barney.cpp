@@ -51,10 +51,8 @@ public:
 
 	virtual void Precache()
 	{
-#ifndef MAPBASE // This is now done in CNPC_PlayerCompanion::Precache()
 		// Prevents a warning
 		SelectModel( );
-#endif
 		BaseClass::Precache();
 
 		PrecacheScriptSound( "NPC_Barney.FootstepLeft" );
@@ -82,11 +80,6 @@ public:
 	void DeathSound( const CTakeDamageInfo &info );
 	void GatherConditions();
 	void UseFunc( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value );
-
-#ifdef MAPBASE
-	// Use Barney's default subtitle color (215,255,255)
-	bool	GetGameTextSpeechParams( hudtextparms_t &params ) { params.r1 = 215; params.g1 = 255; params.b1 = 255; return BaseClass::GetGameTextSpeechParams( params ); }
-#endif
 
 	CAI_FuncTankBehavior		m_FuncTankBehavior;
 	COutputEvent				m_OnPlayerUse;
@@ -118,9 +111,6 @@ END_DATADESC()
 //-----------------------------------------------------------------------------
 void CNPC_Barney::SelectModel()
 {
-#ifdef MAPBASE
-	if (GetModelName() == NULL_STRING)
-#endif
 	SetModelName( AllocPooledString( BARNEY_MODEL ) );
 }
 
@@ -131,11 +121,7 @@ void CNPC_Barney::Spawn( void )
 {
 	Precache();
 
-#ifdef MAPBASE
-	m_iHealth = sk_barney_health.GetInt();
-#else
 	m_iHealth = 80;
-#endif
 
 	m_iszIdleExpression = MAKE_STRING("scenes/Expressions/BarneyIdle.vcd");
 	m_iszAlertExpression = MAKE_STRING("scenes/Expressions/BarneyAlert.vcd");

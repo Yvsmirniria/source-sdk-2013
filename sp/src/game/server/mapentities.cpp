@@ -42,7 +42,17 @@ CBaseEntity *CreateEntityByName( const char *className, int iForceEdictIndex )
 			Error( "CreateEntityByName( %s, %d ) - CreateEdict failed.", className, iForceEdictIndex );
 	}
 
-	IServerNetworkable *pNetwork = EntityFactoryDictionary()->Create( className );
+	// HACKHACK to spawn appropriate jeep based on map name
+	const char* szClassName;
+	if ( 0 == Q_stricmp(className, "prop_vehicle_jeep") )
+	{
+		szClassName = STRING( GetJeepName( IsHL2Map() ) );
+	}
+	else {
+		szClassName = className;
+	}
+
+	IServerNetworkable *pNetwork = EntityFactoryDictionary()->Create( szClassName );
 	g_pForceAttachEdict = NULL;
 
 	if ( !pNetwork )
@@ -86,7 +96,7 @@ string_t ExtractParentName(string_t parentName)
 		return parentName;
 
 	char szToken[256];
-	nexttoken(szToken, STRING(parentName), ',', sizeof(szToken));
+	nexttoken(szToken, STRING(parentName), ',');
 	return AllocPooledString(szToken);
 }
 
@@ -208,7 +218,7 @@ void SetupParentsForSpawnList( int nEntities, HierarchicalSpawn_t *pSpawnList )
 			if ( strchr(STRING(pEntity->m_iParent), ',') )
 			{
 				char szToken[256];
-				const char *pAttachmentName = nexttoken(szToken, STRING(pEntity->m_iParent), ',', sizeof(szToken));
+				const char *pAttachmentName = nexttoken(szToken, STRING(pEntity->m_iParent), ',');
 				pEntity->m_iParent = AllocPooledString(szToken);
 				CBaseEntity *pParent = gEntList.FindEntityByName( NULL, pEntity->m_iParent );
 

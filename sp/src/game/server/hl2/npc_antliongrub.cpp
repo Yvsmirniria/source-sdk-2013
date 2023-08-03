@@ -15,9 +15,6 @@
 #include "items.h"
 #include "item_dynamic_resupply.h"
 #include "npc_vortigaunt_episodic.h"
-#ifdef MAPBASE
-#include "filters.h"
-#endif
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -99,6 +96,9 @@ public:
 	void	IdleThink( void );
 	void	FlinchThink( void );
 	void	GrubTouch( CBaseEntity *pOther );
+	Class_T Classify( void ) {
+		return CLASS_ANTLION;
+	}
 
 	DECLARE_DATADESC();
 
@@ -662,16 +662,6 @@ void CAntlionGrub::GrubTouch( CBaseEntity *pOther )
 	IPhysicsObject *pPhysOther = pOther->VPhysicsGetObject(); // bool bThrown = ( pTarget->VPhysicsGetObject()->GetGameFlags() & FVPHYSICS_WAS_THROWN ) != 0;
 	if ( pOther->IsPlayer() || FClassnameIs(pOther,"npc_vortigaunt") || ( pPhysOther && (pPhysOther->GetGameFlags() & FVPHYSICS_WAS_THROWN )) )
 	{
-#ifdef MAPBASE
-		if (m_hDamageFilter)
-		{
-			// Don't squash if they don't pass our damage filter
-			CBaseFilter *pFilter = static_cast<CBaseFilter*>(m_hDamageFilter.Get());
-			if (pFilter && !pFilter->PassesFilter(this, pOther))
-				return;
-		}
-#endif
-
 		m_OnAgitated.FireOutput( pOther, pOther );
 		Squash( pOther, true, true );
 	}
@@ -857,13 +847,6 @@ void CGrubNugget::Spawn( void )
 {
 	Precache();
 	
-#ifdef MAPBASE
-	if ( GetModelName() != NULL_STRING )
-	{
-		SetModel( STRING(GetModelName()) );
-	}
-	else
-#endif
 	if ( m_nDenomination == NUGGET_LARGE )
 	{
 		SetModel( "models/grub_nugget_large.mdl" );
@@ -895,10 +878,6 @@ void CGrubNugget::Precache( void )
 	PrecacheModel("models/grub_nugget_small.mdl");
 	PrecacheModel("models/grub_nugget_medium.mdl");
 	PrecacheModel("models/grub_nugget_large.mdl");
-#ifdef MAPBASE
-	if (GetModelName() != NULL_STRING)
-		PrecacheModel( STRING(GetModelName()) );
-#endif
 
 	PrecacheScriptSound( "GrubNugget.Touch" );
 	PrecacheScriptSound( "NPC_Antlion_Grub.Explode" );

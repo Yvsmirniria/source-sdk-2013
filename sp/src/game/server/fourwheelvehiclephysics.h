@@ -106,6 +106,9 @@ public:
 
 	int VPhysicsGetObjectList( IPhysicsObject **pList, int listMax );
 
+	bool UseViewSteering() { return m_bViewSteer; }
+	void SetViewSteering( bool bViewSteer ){ m_bViewSteer = bViewSteer;}
+
 private:
 	// engine sounds
 	void CalcWheelData( vehicleparams_t &vehicle );
@@ -165,6 +168,8 @@ private:
 	bool				m_bLastThrottle;
 	bool				m_bLastBoost;
 	bool				m_bLastSkid;
+
+	bool                m_bViewSteer;
 };
 
 

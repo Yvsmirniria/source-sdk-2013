@@ -28,6 +28,7 @@ ConVar r_JeepViewBlendToTime( "r_JeepViewBlendToTime", "1.5", FCVAR_CHEAT );
 
 IMPLEMENT_CLIENTCLASS_DT( C_PropJeep, DT_PropJeep, CPropJeep )
 	RecvPropBool( RECVINFO( m_bHeadlightIsOn ) ),
+	RecvPropFloat( RECVINFO( m_flVelocity ) )
 END_RECV_TABLE()
 
 //-----------------------------------------------------------------------------

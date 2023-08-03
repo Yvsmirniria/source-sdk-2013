@@ -89,12 +89,6 @@
 #include "tier3/tier3.h"
 #include "serverbenchmark_base.h"
 #include "querycache.h"
-#ifdef MAPBASE
-#include "world.h"
-#endif
-
-#include "vscript/ivscript.h"
-#include "vscript_server.h"
 
 
 #ifdef TF_DLL
@@ -188,7 +182,6 @@ IServerEngineTools *serverenginetools = NULL;
 ISceneFileCache *scenefilecache = NULL;
 IXboxSystem *xboxsystem = NULL;	// Xbox 360 only
 IMatchmaking *matchmaking = NULL;	// Xbox 360 only
-IScriptManager *scriptmanager = NULL;
 #if defined( REPLAY_ENABLED )
 IReplaySystem *g_pReplay = NULL;
 IServerReplayContext *g_pReplayServerContext = NULL;
@@ -253,6 +246,8 @@ static void UpdateChapterRestrictions( const char *mapname );
 
 static void UpdateRichPresence ( void );
 
+// SearchPathManager and console commands for loading other mods
+SearchPathManager* g_SearchPathManager; // created in DLLInit and deleted in DLLShutdown
 
 #if !defined( _XBOX ) // Don't doubly define this symbol.
 CSharedEdictChangeInfo *g_pSharedChangeInfo = NULL;
@@ -572,6 +567,40 @@ EXPOSE_SINGLE_INTERFACE_GLOBALVAR(CServerGameDLL, IServerGameDLL, INTERFACEVERSI
 // When bumping the version to this interface, check that our assumption is still valid and expose the older version in the same way
 COMPILE_TIME_ASSERT( INTERFACEVERSION_SERVERGAMEDLL_INT == 9 );
 
+// Needed to mount content from multiple other games
+static void MountAdditionalContent( void )
+{
+	KeyValues *pMainFile = new KeyValues("gameinfo.txt");
+#ifndef _WINDOWS
+	// case sensitivity
+	pMainFile->LoadFromFile(filesystem, "GameInfo.txt", "MOD");
+	if (!pMainFile)
+#endif
+		pMainFile->LoadFromFile(filesystem, "gameinfo.txt", "MOD");
+
+	if (pMainFile)
+	{
+		KeyValues* pFileSystemInfo = pMainFile->FindKey("FileSystem");
+		if (pFileSystemInfo)
+			for (KeyValues *pKey = pFileSystemInfo->GetFirstSubKey(); pKey; pKey = pKey->GetNextKey())
+			{
+				if (strcmp(pKey->GetName(), "AdditionalContentId") == 0)
+				{
+					int appid = abs(pKey->GetInt());
+					if (appid) {
+						Msg( "Mounting content from appid %d", appid );
+						if (appid == 220)
+							filesystem->AddSearchPath( "hl2", "GAME" );
+						if (filesystem->MountSteamContent( -appid ) != FILESYSTEM_MOUNT_OK)
+							Msg( "Unable to mount extra content with appId: %i\n", appid );
+					}
+				}
+			}
+	}
+	pMainFile->deleteThis();
+}
+
+
 bool CServerGameDLL::DLLInit( CreateInterfaceFn appSystemFactory, 
 		CreateInterfaceFn physicsFactory, CreateInterfaceFn fileSystemFactory, 
 		CGlobalVars *pGlobals)
@@ -608,7 +637,7 @@ bool CServerGameDLL::DLLInit( CreateInterfaceFn appSystemFactory,
 		return false;
 	if ( (enginetrace = (IEngineTrace *)appSystemFactory(INTERFACEVERSION_ENGINETRACE_SERVER,NULL)) == NULL )
 		return false;
-	if ( (filesystem = (IFileSystem *)fileSystemFactory(FILESYSTEM_INTERFACE_VERSION,NULL)) == NULL )
+	if ((filesystem = (IFileSystem *)appSystemFactory( FILESYSTEM_INTERFACE_VERSION, NULL )) == NULL)
 		return false;
 	if ( (gameeventmanager = (IGameEventManager2 *)appSystemFactory(INTERFACEVERSION_GAMEEVENTSMANAGER2,NULL)) == NULL )
 		return false;
@@ -631,16 +660,6 @@ bool CServerGameDLL::DLLInit( CreateInterfaceFn appSystemFactory,
 	if ( IsX360() && (matchmaking = (IMatchmaking *)appSystemFactory( VENGINE_MATCHMAKING_VERSION, NULL )) == NULL )
 		return false;
 
-	if (!CommandLine()->CheckParm("-noscripting"))
-	{
-		scriptmanager = (IScriptManager*)appSystemFactory(VSCRIPT_INTERFACE_VERSION, NULL);
-
-		if (scriptmanager == nullptr)
-		{
-			scriptmanager = (IScriptManager*)Sys_GetFactoryThis()(VSCRIPT_INTERFACE_VERSION, NULL);
-		}
-	}
-
 	// If not running dedicated, grab the engine vgui interface
 	if ( !engine->IsDedicatedServer() )
 	{
@@ -653,6 +672,14 @@ bool CServerGameDLL::DLLInit( CreateInterfaceFn appSystemFactory,
 	// Yes, both the client and game .dlls will try to Connect, the soundemittersystem.dll will handle this gracefully
 	if ( !soundemitterbase->Connect( appSystemFactory ) )
 		return false;
+
+	g_SearchPathManager = new SearchPathManager( filesystem );
+	if (!g_SearchPathManager) {
+		Error( "Failed to init search path manager" );
+		return false;
+	}
+
+	MountAdditionalContent();
 
 	// cache the globals
 	gpGlobals = pGlobals;
@@ -698,7 +725,6 @@ bool CServerGameDLL::DLLInit( CreateInterfaceFn appSystemFactory,
 	g_pGameSaveRestoreBlockSet->AddBlockHandler( GetCommentarySaveRestoreBlockHandler() );
 	g_pGameSaveRestoreBlockSet->AddBlockHandler( GetEventQueueSaveRestoreBlockHandler() );
 	g_pGameSaveRestoreBlockSet->AddBlockHandler( GetAchievementSaveRestoreBlockHandler() );
-	g_pGameSaveRestoreBlockSet->AddBlockHandler( GetVScriptSaveRestoreBlockHandler() );
 
 	// The string system must init first + shutdown last
 	IGameSystem::Add( GameStringSystem() );
@@ -719,9 +745,6 @@ bool CServerGameDLL::DLLInit( CreateInterfaceFn appSystemFactory,
 	IGameSystem::Add( SoundEmitterSystem() );
 
 	// load Mod specific game events ( MUST be before InitAllSystems() so it can pickup the mod specific events)
-#ifdef MAPBASE
-	gameeventmanager->LoadEventsFromFile("resource/MapbaseEvents.res");
-#endif
 	gameeventmanager->LoadEventsFromFile("resource/ModEvents.res");
 
 #ifdef CSTRIKE_DLL // BOTPORT: TODO: move these ifdefs out
@@ -777,7 +800,6 @@ void CServerGameDLL::DLLShutdown( void )
 	// Due to dependencies, these are not autogamesystems
 	ModelSoundsCacheShutdown();
 
-	g_pGameSaveRestoreBlockSet->RemoveBlockHandler( GetVScriptSaveRestoreBlockHandler() );
 	g_pGameSaveRestoreBlockSet->RemoveBlockHandler( GetAchievementSaveRestoreBlockHandler() );
 	g_pGameSaveRestoreBlockSet->RemoveBlockHandler( GetCommentarySaveRestoreBlockHandler() );
 	g_pGameSaveRestoreBlockSet->RemoveBlockHandler( GetEventQueueSaveRestoreBlockHandler() );
@@ -824,6 +846,10 @@ void CServerGameDLL::DLLShutdown( void )
 	DisconnectTier2Libraries();
 	ConVar_Unregister();
 	DisconnectTier1Libraries();
+
+	if (g_SearchPathManager) {
+		delete g_SearchPathManager;
+	}
 }
 
 bool CServerGameDLL::ReplayInit( CreateInterfaceFn fnReplayFactory )
@@ -869,6 +895,7 @@ float CServerGameDLL::GetTickInterval( void ) const
 
 	return tickinterval;
 }
+
 
 // This is called when a new game is started. (restart, map)
 bool CServerGameDLL::GameInit( void )
@@ -983,6 +1010,33 @@ bool CServerGameDLL::LevelInit( const char *pMapName, char const *pMapEntities, 
 	}
 #endif // USES_ECON_ITEMS
 
+
+	
+
+	// MobMod search path hackery
+	// Set search paths to prioritise current game, e.g. hl2 maps prioritise hl2 search path, 
+	// ep2 maps prioritise ep2 search paths etc.
+	int mapgamepath = GetModIndexForMap( STRING( gpGlobals->mapname ) );
+
+	// If we are configured for another mod, the search path was already altered.
+	// If we are configured for HL2, EP1, EP2, make sure search path config is correct
+	if (mapgamepath != SearchPathManager::SPM_OTHER &&    // it's a core map (hl2,ep1,ep2)
+		g_SearchPathManager->GetCurrentConfig() != mapgamepath &&
+		g_SearchPathManager->GetCurrentConfig() <= SearchPathManager::SPM_HL2 ) {
+
+		g_SearchPathManager->ConfigureSearchPaths( mapgamepath );
+		mdlcache->Flush();
+
+		m_bSpecialReload = true; // if we recreate the search path during the level init
+		                         // we have to reload to make sure we've loaded any 
+		                         // embedded map data, e.g. cracked glass material
+	}
+	else {
+		m_bSpecialReload = false;
+	}
+	
+	
+
 	ResetWindspeed();
 	UpdateChapterRestrictions( pMapName );
 
@@ -1087,6 +1141,7 @@ bool CServerGameDLL::LevelInit( const char *pMapName, char const *pMapEntities, 
 	// clear any pending autosavedangerous
 	m_fAutoSaveDangerousTime = 0.0f;
 	m_fAutoSaveDangerousMinHealthToCommit = 0.0f;
+
 	return true;
 }
 
@@ -1103,7 +1158,9 @@ bool g_bCheckForChainedActivate;
 	{ \
 		if ( bCheck ) \
 		{ \
-			AssertMsg( g_bReceivedChainedActivate == true, "Entity (%i/%s/%s) failed to call base class Activate()\n", pClass->entindex(), pClass->GetClassname(), STRING( pClass->GetEntityName() ) ); \
+			char msg[ 1024 ];	\
+			Q_snprintf( msg, sizeof( msg ),  "Entity (%i/%s/%s) failed to call base class Activate()\n", pClass->entindex(), pClass->GetClassname(), STRING( pClass->GetEntityName() ) );	\
+			AssertMsg( g_bReceivedChainedActivate == true, msg ); \
 		} \
 		g_bCheckForChainedActivate = false; \
 	}
@@ -1357,6 +1414,11 @@ void CServerGameDLL::PreClientUpdate( bool simulating )
 
 void CServerGameDLL::Think( bool finalTick )
 {
+	if ( m_bSpecialReload ) {
+		engine->ServerCommand( "reload\n" );
+		return;
+	}
+
 	if ( m_fAutoSaveDangerousTime != 0.0f && m_fAutoSaveDangerousTime < gpGlobals->curtime )
 	{
 		// The safety timer for a dangerous auto save has expired
@@ -1741,41 +1803,9 @@ static TITLECOMMENT gTitleComments[] =
 #endif
 };
 
-#ifdef MAPBASE
-extern CUtlVector<MODTITLECOMMENT> *Mapbase_GetChapterMaps();
-extern CUtlVector<MODCHAPTER> *Mapbase_GetChapterList();
-#endif
-
 #ifdef _XBOX
 void CServerGameDLL::GetTitleName( const char *pMapName, char* pTitleBuff, int titleBuffSize )
 {
-#ifdef MAPBASE
-	// Check the world entity for a chapter title
-	if ( CWorld *pWorld = GetWorldEntity() )
-	{
-		const char *pWorldChapter = pWorld->GetChapterTitle();
-		if ( pWorldChapter && pWorldChapter[0] != '\0' )
-		{
-			Q_strncpy( chapterTitle, pWorldChapter, sizeof( chapterTitle ) );
-			return;
-		}
-	}
-
-	// Look in the mod's chapter list
-	CUtlVector<MODTITLECOMMENT> *ModChapterComments = Mapbase_GetChapterMaps();
-	if (ModChapterComments->Count() > 0)
-	{
-		for ( int i = 0; i < ModChapterComments->Count(); i++ )
-		{
-			if ( !Q_strnicmp( mapname, ModChapterComments->Element(i).pBSPName, strlen(ModChapterComments->Element(i).pBSPName) ) )
-			{
-				Q_strncpy( pTitleBuff, ModChapterComments->Element(i).pTitleName, titleBuffSize );
-				return;
-			}
-		}
-	}
-#endif
-
 	// Try to find a matching title comment for this mapname
 	for ( int i = 0; i < ARRAYSIZE(gTitleComments); i++ )
 	{
@@ -1785,7 +1815,6 @@ void CServerGameDLL::GetTitleName( const char *pMapName, char* pTitleBuff, int t
 			return;
 		}
 	}
-
 	Q_strncpy( pTitleBuff, pMapName, titleBuffSize );
 }
 #endif
@@ -1823,44 +1852,6 @@ void CServerGameDLL::GetSaveComment( char *text, int maxlength, float flMinutes,
 			break;
 		}
 	}
-
-#ifdef MAPBASE
-	// Look in the mod's chapter list
-	CUtlVector<MODTITLECOMMENT> *ModChapterComments = Mapbase_GetChapterMaps();
-	if (ModChapterComments->Count() > 0)
-	{
-		for ( int i = 0; i < ModChapterComments->Count(); i++ )
-		{
-			if ( !Q_strnicmp( mapname, ModChapterComments->Element(i).pBSPName, strlen(ModChapterComments->Element(i).pBSPName) ) )
-			{
-				// found one
-				int j;
-
-				// Got a message, post-process it to be save name friendly
-				Q_strncpy( comment, ModChapterComments->Element(i).pTitleName, sizeof( comment ) );
-				pName = comment;
-				j = 0;
-				// Strip out CRs
-				while ( j < 64 && comment[j] )
-				{
-					if ( comment[j] == '\n' || comment[j] == '\r' )
-						comment[j] = 0;
-					else
-						j++;
-				}
-				break;
-			}
-		}
-	}
-
-	// Check the world entity for a chapter title
-	if ( CWorld *pWorld = GetWorldEntity() )
-	{
-		const char *pWorldChapter = pWorld->GetChapterTitle();
-		if ( pWorldChapter && pWorldChapter[0] != '\0' )
-			pName = pWorldChapter;
-	}
-#endif
 	
 	// If we didn't get one, use the designer's map name, or the BSP name itself
 	if ( !pName )
@@ -2155,68 +2146,6 @@ void UpdateChapterRestrictions( const char *mapname )
 			break;
 		}
 	}
-
-#ifdef MAPBASE
-	// Look in the mod's chapter list
-	CUtlVector<MODTITLECOMMENT> *ModChapterComments = Mapbase_GetChapterMaps();
-	if (ModChapterComments->Count() > 0)
-	{
-		for ( int i = 0; i < ModChapterComments->Count(); i++ )
-		{
-			if ( !Q_strnicmp( mapname, ModChapterComments->Element(i).pBSPName, strlen(ModChapterComments->Element(i).pBSPName) ) )
-			{
-				// found
-				Q_strncpy( chapterTitle, ModChapterComments->Element(i).pTitleName, sizeof( chapterTitle ) );
-				int j = 0;
-				while ( j < 64 && chapterTitle[j] )
-				{
-					if ( chapterTitle[j] == '\n' || chapterTitle[j] == '\r' )
-						chapterTitle[j] = 0;
-					else
-						j++;
-				}
-
-				// Mods can order their own custom chapter names,
-				// allowing for more flexible string name usage, multiple names in one chapter, etc.
-				CUtlVector<MODCHAPTER> *ModChapterList = Mapbase_GetChapterList();
-				for ( int i = 0; i < ModChapterList->Count(); i++ )
-				{
-					if ( !Q_strnicmp( chapterTitle, ModChapterList->Element(i).pChapterName, strlen(chapterTitle) ) )
-					{
-						// ok we have the string, see if it's newer
-						int nNewChapter = ModChapterList->Element(i).iChapter;
-						int nUnlockedChapter = sv_unlockedchapters.GetInt();
-
-						if ( nUnlockedChapter < nNewChapter )
-						{
-							// ok we're at a higher chapter, unlock
-							sv_unlockedchapters.SetValue( nNewChapter );
-
-							// HACK: Call up through a better function than this? 7/23/07 - jdw
-							if ( IsX360() )
-							{
-								engine->ServerCommand( "host_writeconfig\n" );
-							}
-						}
-
-						g_nCurrentChapterIndex = nNewChapter;
-						return;
-					}
-				}
-
-				break;
-			}
-		}
-	}
-
-	// Check the world entity for a chapter title.
-	if ( CWorld *pWorld = GetWorldEntity() )
-	{
-		const char *pWorldChapter = pWorld->GetChapterTitle();
-		if ( pWorldChapter && pWorldChapter[0] != '\0' )
-			Q_strncpy( chapterTitle, pWorldChapter, sizeof( chapterTitle ) );
-	}
-#endif
 
 	if ( !chapterTitle[0] )
 		return;
@@ -3196,11 +3125,7 @@ float CServerGameClients::ProcessUsercmds( edict_t *player, bf_read *buf, int nu
 	for ( i = totalcmds - 1; i >= 0; i-- )
 	{
 		to = &cmds[ i ];
-#if defined( MAPBASE_VSCRIPT )
-		ReadUsercmd( buf, to, from, pPlayer ); // Tell whose UserCmd it is
-#else
 		ReadUsercmd( buf, to, from );
-#endif
 		from = to;
 	}
 

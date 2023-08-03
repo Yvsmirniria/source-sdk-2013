@@ -21,6 +21,8 @@
 #include "sourcevr/isourcevirtualreality.h"
 // NVNT haptic utils
 #include "haptics/haptic_utils.h"
+// for clearing sprint toggle 
+#include "input.h" 
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -46,6 +48,8 @@ IMPLEMENT_CLIENTCLASS_DT(C_PropVehicleDriveable, DT_PropVehicleDriveable, CPropV
 	RecvPropVector( RECVINFO( m_vecEyeExitEndpoint ) ),
 	RecvPropBool( RECVINFO( m_bHasGun ) ),
 	RecvPropVector( RECVINFO( m_vecGunCrosshair ) ),
+	RecvPropVector( RECVINFO( m_vecPhysVelocity ) ),
+	RecvPropFloat( RECVINFO( m_flVelocity ) ),
 END_RECV_TABLE()
 
 
@@ -104,6 +108,20 @@ int C_PropVehicleDriveable::GetJoystickResponseCurve() const
 	return joy_response_move_vehicle.GetInt();
 }
 
+int C_PropVehicleDriveable::GetCurrentSpeed() const
+{
+	if (m_flVelocity > 0.0f) {
+		return floor( m_flVelocity );
+	}
+
+	if ( this->m_vecPhysVelocity.IsValid() ) {
+		return floor( VectorLength( this->m_vecPhysVelocity ) );
+	}
+	else
+	{
+		return 0;
+	}
+}
 
 //-----------------------------------------------------------------------------
 // Purpose: 
@@ -188,6 +206,12 @@ void C_PropVehicleDriveable::ClientThink( void )
 {
 	// The vehicle is always dirty owing to pose parameters while it's being driven.
 	g_pClientShadowMgr->MarkRenderToTextureShadowDirty( GetShadowHandle() );
+
+	// Turn off turbo if stopped
+	if ( GetCurrentSpeed() < 1.0f )
+	{
+		IN_ClearSpeedToggle();
+	}
 }
 
 
@@ -409,6 +433,10 @@ void C_PropVehicleDriveable::OnEnteredVehicle( C_BaseCombatCharacter *pPassenger
 	// NVNT notify haptics system of navigation change
 	HapticsEnteredVehicle(this,pPassenger);
 #endif
+	// Toggle sprint would cause the car to use boost immediately
+	// so set to not sprinting
+	IN_ClearSpeedToggle();
+
 }
 
 // NVNT - added function

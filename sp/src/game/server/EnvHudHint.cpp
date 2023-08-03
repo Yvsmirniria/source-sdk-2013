@@ -32,9 +32,6 @@ private:
 
 	void InputShowHudHint( inputdata_t &inputdata );
 	void InputHideHudHint( inputdata_t &inputdata );
-#ifdef MAPBASE
-	void InputSetHudHint( inputdata_t &inputdata );
-#endif
 	string_t m_iszMessage;
 	DECLARE_DATADESC();
 };
@@ -46,9 +43,6 @@ BEGIN_DATADESC( CEnvHudHint )
 	DEFINE_KEYFIELD( m_iszMessage, FIELD_STRING, "message" ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "ShowHudHint", InputShowHudHint ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "HideHudHint", InputHideHudHint ),
-#ifdef MAPBASE
-	DEFINE_INPUTFUNC( FIELD_STRING, "SetHudHint", InputSetHudHint ),
-#endif
 
 END_DATADESC()
 
@@ -146,12 +140,3 @@ void CEnvHudHint::InputHideHudHint( inputdata_t &inputdata )
 		MessageEnd();
 	}
 }
-
-#ifdef MAPBASE
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-void CEnvHudHint::InputSetHudHint( inputdata_t &inputdata )
-{
-	m_iszMessage = inputdata.value.StringID();
-}
-#endif

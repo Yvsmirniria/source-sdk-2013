@@ -61,6 +61,14 @@ protected:
 	bool			m_bLowered;			// Whether the viewmodel is raised or lowered
 	float			m_flRaiseTime;		// If lowered, the time we should raise the viewmodel
 	float			m_flHolsterTime;	// When the weapon was holstered
+
+	float           m_flBobKickZ; // auto-decaying bob to dip after jumping and landing
+	bool            m_bTgtBobKickZ; // kick push to max first, then set this to false to decay
+	float           m_flPrevPlayerVelZ; // remember the player's previous z velocity, and use the delta
+	                                    // to adjust the BobKick
+
+	float           m_flRollAdj; // crowbar slash uses roll adjustment
+
 };
 
 #endif // BASEHLCOMBATWEAPON_SHARED_H

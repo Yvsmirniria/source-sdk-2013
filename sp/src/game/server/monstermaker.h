@@ -25,6 +25,7 @@
 #define SF_NPCMAKER_ALWAYSUSERADIUS	256	// Use radius spawn whenever spawning
 #define SF_NPCMAKER_NOPRELOADMODELS 512	// Suppress preloading into the cache of all referenced .mdl files
 
+extern ConVar sv_extra_enemies; 
 //=========================================================
 //=========================================================
 class CNPCSpawnDestination : public CPointEntity 
@@ -65,7 +66,7 @@ public:
 	CBaseNPCMaker(void) {}
 
 	// Input handlers
-	void InputSpawnNPC( inputdata_t &inputdata );
+	virtual void InputSpawnNPC( inputdata_t &inputdata );
 	void InputEnable( inputdata_t &inputdata );
 	void InputDisable( inputdata_t &inputdata );
 	void InputToggle( inputdata_t &inputdata );
@@ -120,6 +121,7 @@ public:
 	string_t m_spawnEquipment;
 	string_t m_RelationshipString;		// Used to load up relationship keyvalues
 	string_t m_ChildTargetName;
+
 };
 
 class CTemplateNPCMaker : public CBaseNPCMaker
@@ -139,6 +141,8 @@ public:
 	void MakeNPCInRadius( void );
 	void MakeNPCInLine( void );
 	virtual void MakeMultipleNPCS( int nNPCs );
+	void ChildPostSpawn( CAI_BaseNPC *pChild );
+	bool IsDepleted();
 
 protected:
 	virtual void PrecacheTemplateEntity( CBaseEntity *pEntity );
@@ -147,6 +151,7 @@ protected:
 	bool PlaceNPCInLine( CAI_BaseNPC *pNPC );
 
 	// Inputs
+	void InputSpawnNPC( inputdata_t &inputdata );
 	void InputSpawnInRadius( inputdata_t &inputdata ) { MakeNPCInRadius(); }
 	void InputSpawnInLine( inputdata_t &inputdata ) { MakeNPCInLine(); }
 	void InputSpawnMultiple( inputdata_t &inputdata );
@@ -162,6 +167,8 @@ protected:
 	string_t m_iszDestinationGroup;	
 
 	int		m_iMinSpawnDistance;
+
+	int    m_nSpawnExtra;
 
 	enum ThreeStateYesNo_t
 	{

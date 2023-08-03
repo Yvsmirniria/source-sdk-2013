@@ -95,14 +95,7 @@ public:
 	bool FindEntity( void );
 	void StartScript( void );
 	void FireScriptEvent( int nEvent );
-#ifdef MAPBASE
-	void OnBeginSequence( CBaseEntity *pActor );
-	void OnEntrySequence( CBaseEntity *pActor );
-	void OnActionSequence( CBaseEntity *pActor );
-	void OnPreIdleSequence( CBaseEntity *pActor );
-#else
 	void OnBeginSequence( void );
-#endif
 
 	void SetTarget( CBaseEntity *pTarget ) { m_hTargetEnt = pTarget; };
 	CBaseEntity *GetTarget( void ) { return m_hTargetEnt; };
@@ -111,9 +104,6 @@ public:
 	void InputBeginSequence( inputdata_t &inputdata );
 	void InputCancelSequence( inputdata_t &inputdata );
 	void InputMoveToPosition( inputdata_t &inputdata );
-#ifdef MAPBASE
-	void InputSetTarget( inputdata_t &inputdata );
-#endif
 
 	bool IsTimeToStart( void );
 	bool IsWaitingForBegin( void );
@@ -221,12 +211,6 @@ private:
 	COutputEvent m_OnCancelSequence;
 	COutputEvent m_OnCancelFailedSequence;	// Fired when a scene is cancelled before it's ever run
 	COutputEvent m_OnScriptEvent[MAX_SCRIPT_EVENTS];
-#ifdef MAPBASE
-	COutputEvent m_OnEntrySequence;
-	COutputEvent m_OnActionSequence;
-	COutputEvent m_OnPreIdleSequence;
-	COutputEvent m_OnFoundNPC;
-#endif
 
 	static void ScriptEntityCancel( CBaseEntity *pentCine, bool bPretendSuccess = false );
 
@@ -239,11 +223,6 @@ private:
 	EHANDLE		m_hInteractionRelativeEntity;
 
 	int			m_iPlayerDeathBehavior;
-
-#ifdef MAPBASE
-	// !activator functionality
-	EHANDLE		m_hActivator;
-#endif
 };
 
 

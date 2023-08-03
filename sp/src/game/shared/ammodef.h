@@ -72,9 +72,6 @@ public:
 	Ammo_t				m_AmmoType[MAX_AMMO_TYPES];
 
 	Ammo_t				*GetAmmoOfIndex(int nAmmoIndex);
-#ifdef MAPBASE
-	const char*			Name(int nAmmoIndex);
-#endif
 	int					Index(const char *psz);
 	int					PlrDamage(int nAmmoIndex);
 	int					NPCDamage(int nAmmoIndex);
@@ -94,11 +91,6 @@ public:
 
 private:
 	bool				AddAmmoType(char const* name, int damageType, int tracerType, int nFlags, int minSplashSize, int maxSplashSize );
-
-#ifdef MAPBASE_VSCRIPT
-	ALLOW_SCRIPT_ACCESS();
-	int					GetNumAmmoTypes() { return m_nAmmoIndex; }
-#endif
 };
 
 

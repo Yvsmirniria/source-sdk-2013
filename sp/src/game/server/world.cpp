@@ -31,6 +31,7 @@
 #include "engine/IStaticPropMgr.h"
 #include "particle_parse.h"
 #include "globalstate.h"
+#include "filesystem.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -376,9 +377,6 @@ BEGIN_DATADESC( CWorld )
 
 	// keyvalues are parsed from map, but not saved/loaded
 	DEFINE_KEYFIELD( m_iszChapterTitle, FIELD_STRING, "chaptertitle" ),
-#ifdef MAPBASE
-	DEFINE_KEYFIELD( m_bChapterTitleNoMessage, FIELD_BOOLEAN, "chaptertitlenomessage" ),
-#endif
 	DEFINE_KEYFIELD( m_bStartDark,		FIELD_BOOLEAN, "startdark" ),
 	DEFINE_KEYFIELD( m_bDisplayTitle,	FIELD_BOOLEAN, "gametitle" ),
 	DEFINE_FIELD( m_WorldMins, FIELD_VECTOR ),
@@ -393,15 +391,7 @@ BEGIN_DATADESC( CWorld )
 	DEFINE_KEYFIELD( m_flMaxPropScreenSpaceWidth, FIELD_FLOAT, "maxpropscreenwidth" ),
 	DEFINE_KEYFIELD( m_flMinPropScreenSpaceWidth, FIELD_FLOAT, "minpropscreenwidth" ),
 	DEFINE_KEYFIELD( m_iszDetailSpriteMaterial, FIELD_STRING, "detailmaterial" ),
-#ifdef MAPBASE_VSCRIPT
-	DEFINE_KEYFIELD( m_iScriptLanguage, FIELD_INTEGER, "vscriptlanguage" ),
-	//DEFINE_KEYFIELD( m_iScriptLanguageClient, FIELD_INTEGER, "vscriptlanguage_client" ),
-#endif
 	DEFINE_KEYFIELD( m_bColdWorld,		FIELD_BOOLEAN, "coldworld" ),
-
-#ifdef MAPBASE
-	DEFINE_INPUTFUNC( FIELD_STRING, "SetChapterTitle", InputSetChapterTitle ),
-#endif
 
 END_DATADESC()
 
@@ -418,9 +408,6 @@ IMPLEMENT_SERVERCLASS_ST(CWorld, DT_WORLD)
 	SendPropFloat	(SENDINFO(m_flMinPropScreenSpaceWidth), 0, SPROP_NOSCALE ),
 	SendPropStringT (SENDINFO(m_iszDetailSpriteMaterial) ),
 	SendPropInt		(SENDINFO(m_bColdWorld), 1, SPROP_UNSIGNED ),
-#ifdef MAPBASE
-	SendPropStringT (SENDINFO(m_iszChapterTitle) ),
-#endif
 END_SEND_TABLE()
 
 //
@@ -463,7 +450,7 @@ bool CWorld::KeyValue( const char *szKeyName, const char *szValue )
 
 
 extern bool		g_fGameOver;
-CWorld *g_WorldEntity = NULL;
+static CWorld *g_WorldEntity = NULL;
 
 CWorld* GetWorldEntity()
 {
@@ -479,11 +466,6 @@ CWorld::CWorld( )
 	
 	SetSolid( SOLID_BSP );
 	SetMoveType( MOVETYPE_NONE );
-
-#ifdef MAPBASE_VSCRIPT
-	m_iScriptLanguage = SL_NONE;
-	//m_iScriptLanguageClient = -2;
-#endif
 
 	m_bColdWorld = false;
 }
@@ -605,6 +587,7 @@ void CWorld::Precache( void )
 	ConVarRef roomtype( "room_type" );
 	roomtype.SetValue( 0 );
 
+
 	// Set up game rules
 	Assert( !g_pGameRules );
 	if (g_pGameRules)
@@ -697,26 +680,11 @@ void CWorld::Precache( void )
 	// Call all registered precachers.
 	CPrecacheRegister::Precache();	
 
-#ifdef MAPBASE
-	if ( m_iszChapterTitle.Get() != NULL_STRING && !m_bChapterTitleNoMessage )
-	{
-		DevMsg( 2, "Chapter title: %s\n", STRING(m_iszChapterTitle.Get()) );
-		CMessage *pMessage = (CMessage *)CBaseEntity::Create( "env_message", vec3_origin, vec3_angle, NULL );
-		if ( pMessage )
-		{
-			pMessage->SetMessage( m_iszChapterTitle.Get() );
-			m_iszChapterTitle.Set( NULL_STRING );
+	HackChapterTitle();
 
-			// send the message entity a play message command, delayed by 1 second
-			pMessage->AddSpawnFlags( SF_MESSAGE_ONCE );
-			pMessage->SetThink( &CMessage::SUB_CallUseToggle );
-			pMessage->SetNextThink( gpGlobals->curtime + 1.0f );
-		}
-	}
-#else
 	if ( m_iszChapterTitle != NULL_STRING )
 	{
-		DevMsg( 2, "Chapter title: %s\n", STRING(m_iszChapterTitle) );
+		Msg( "Chapter title: %s\n", STRING(m_iszChapterTitle) );
 		CMessage *pMessage = (CMessage *)CBaseEntity::Create( "env_message", vec3_origin, vec3_angle, NULL );
 		if ( pMessage )
 		{
@@ -729,7 +697,6 @@ void CWorld::Precache( void )
 			pMessage->SetNextThink( gpGlobals->curtime + 1.0f );
 		}
 	}
-#endif
 
 	g_iszFuncBrushClassname = AllocPooledString("func_brush");
 }
@@ -769,9 +736,75 @@ bool CWorld::IsColdWorld( void )
 	return m_bColdWorld;
 }
 
-#ifdef MAPBASE
-void CWorld::InputSetChapterTitle( inputdata_t &inputdata )
+
+// Episodic maps have chapter names in them, but refer to their
+// original chapter numbers. So Ep1 chapter 1 is now chapter 15 etc.
+// Bound to be a smarter way to do this, but this is easy and will work.
+void CWorld::HackChapterTitle( void )
 {
-	m_iszChapterTitle.Set( inputdata.value.StringID() );
+	if (m_iszChapterTitle == NULL_STRING)
+		return;
+
+	if (IsEp1Map())
+	{
+		if (Q_stristr( STRING( m_iszChapterTitle ), "Chapter1_Title" ) != NULL )
+		{
+			m_iszChapterTitle = MAKE_STRING( "Chapter15_Title" );
+		}
+		else if (Q_stristr( STRING( m_iszChapterTitle ), "Chapter2_Title" ) != NULL)
+		{
+            m_iszChapterTitle = MAKE_STRING( "Chapter16_Title" );
+		}
+		else if (Q_stristr( STRING( m_iszChapterTitle ), "Chapter3_Title" ) != NULL)
+		{
+			m_iszChapterTitle = MAKE_STRING( "Chapter17_Title" );
+		}
+		else if (Q_stristr( STRING( m_iszChapterTitle ), "Chapter4_Title" ) != NULL)
+		{
+			m_iszChapterTitle = MAKE_STRING( "Chapter18_Title" );
+		}
+		else if (Q_stristr( STRING( m_iszChapterTitle ), "Chapter5_Title" ) != NULL)
+		{
+			m_iszChapterTitle = MAKE_STRING( "Chapter19_Title" );
+		}
+		
+	}
+	else if (!IsHL2Map())
+	{
+		// Don't have an IsEp2() function, so not ep1 and not hl2 will do
+		if (Q_stristr( STRING( m_iszChapterTitle ), "Chapter1_Title" ) != NULL)
+		{
+			m_iszChapterTitle = MAKE_STRING( "Chapter20_Title" );
+		}
+		else if (Q_stristr( STRING( m_iszChapterTitle ), "Chapter2_Title" ) != NULL)
+		{
+			m_iszChapterTitle = MAKE_STRING( "Chapter21_Title" );
+		}
+		else if (Q_stristr( STRING( m_iszChapterTitle ), "Chapter3_Title" ) != NULL)
+		{
+			m_iszChapterTitle = MAKE_STRING( "Chapter22_Title" );
+		}
+		else if (Q_stristr( STRING( m_iszChapterTitle ), "Chapter4_Title" ) != NULL)
+		{
+			m_iszChapterTitle = MAKE_STRING( "Chapter23_Title" );
+		}
+		else if (Q_stristr( STRING( m_iszChapterTitle ), "Chapter5_Title" ) != NULL)
+		{
+			m_iszChapterTitle = MAKE_STRING( "Chapter24_Title" );
+		}
+		else if (Q_stristr( STRING( m_iszChapterTitle ), "Chapter6_Title" ) != NULL)
+		{
+			m_iszChapterTitle = MAKE_STRING( "Chapter25_Title" );
+		}
+		else if (Q_stristr( STRING( m_iszChapterTitle ), "Chapter7_Title" ) != NULL)
+		{
+			m_iszChapterTitle = MAKE_STRING( "Chapter26_Title" );
+		}
+		else if (Q_stristr( STRING( m_iszChapterTitle ), "Chapter8_Title" ) != NULL)
+		{
+			m_iszChapterTitle = MAKE_STRING( "Chapter27_Title" );
+		}
+		
+	}
+
 }
-#endif

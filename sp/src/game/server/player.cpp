@@ -59,10 +59,6 @@
 #include "env_zoom.h"
 #include "rumble_shared.h"
 #include "gamestats.h"
-#ifdef MAPBASE // From Alien Swarm SDK
-#include "env_tonemap_controller.h"
-#include "fogvolume.h"
-#endif
 #include "npcevent.h"
 #include "datacache/imdlcache.h"
 #include "hintsystem.h"
@@ -74,6 +70,9 @@
 #include "vote_controller.h"
 #include "ai_speech.h"
 
+#include "weapon_frag.h"
+#include "basebludgeonweapon.h"
+
 #if defined USES_ECON_ITEMS
 #include "econ_wearable.h"
 #endif
@@ -84,14 +83,6 @@
 #ifdef HL2_DLL
 #include "combine_mine.h"
 #include "weapon_physcannon.h"
-#ifdef MAPBASE
-#include "mapbase/GlobalStrings.h"
-#include "mapbase/matchers.h"
-#endif
-#endif
-
-#ifdef MAPBASE_VSCRIPT
-#include "mapbase/vscript_funcs_shared.h"
 #endif
 
 ConVar autoaim_max_dist( "autoaim_max_dist", "2160" ); // 2160 = 180 feet
@@ -179,6 +170,8 @@ extern void AddMultiDamage( const CTakeDamageInfo &info, CBaseEntity *pEntity );
 
 #define CMD_MOSTRECENT 0
 
+#define MAX_FRAG_COOK_TIME 2.75
+
 //#define	FLASH_DRAIN_TIME	 1.2 //100 units/3 minutes
 //#define	FLASH_CHARGE_TIME	 0.2 // 100 units/20 seconds  (seconds per unit)
 
@@ -202,10 +195,6 @@ ConVar  sv_player_net_suppress_usercommands( "sv_player_net_suppress_usercommand
 ConVar  sv_player_display_usercommand_errors( "sv_player_display_usercommand_errors", "0", FCVAR_CHEAT, "1 = Display warning when command values are out-of-range. 2 = Spew invalid ranges." );
 
 ConVar  player_debug_print_damage( "player_debug_print_damage", "0", FCVAR_CHEAT, "When true, print amount and type of all damage received by player to console." );
-
-#ifdef MAPBASE
-ConVar	player_use_visibility_cache( "player_use_visibility_cache", "0", FCVAR_NONE, "Allows the player to use the visibility cache." );
-#endif
 
 
 void CC_GiveCurrentAmmo( void )
@@ -376,117 +365,102 @@ BEGIN_DATADESC( CBasePlayer )
 	//DEFINE_FIELD( m_lastx, FIELD_INTEGER ),
 	//DEFINE_FIELD( m_lasty, FIELD_INTEGER ),
 
-	DEFINE_FIELD( m_iFrags, FIELD_INTEGER ),
-	DEFINE_FIELD( m_iDeaths, FIELD_INTEGER ),
-	DEFINE_FIELD( m_bAllowInstantSpawn, FIELD_BOOLEAN ),
-	DEFINE_FIELD( m_flNextDecalTime, FIELD_TIME ),
-	//DEFINE_AUTO_ARRAY( m_szTeamName, FIELD_STRING ), // mp
+DEFINE_FIELD( m_iFrags, FIELD_INTEGER ),
+DEFINE_FIELD( m_iDeaths, FIELD_INTEGER ),
+DEFINE_FIELD( m_bAllowInstantSpawn, FIELD_BOOLEAN ),
+DEFINE_FIELD( m_flNextDecalTime, FIELD_TIME ),
+//DEFINE_AUTO_ARRAY( m_szTeamName, FIELD_STRING ), // mp
 
-	//DEFINE_FIELD( m_iConnected, FIELD_INTEGER ),
-	// from edict_t
-	DEFINE_FIELD( m_ArmorValue, FIELD_INTEGER ),
-	DEFINE_FIELD( m_DmgOrigin, FIELD_VECTOR ),
-	DEFINE_FIELD( m_DmgTake, FIELD_FLOAT ),
-	DEFINE_FIELD( m_DmgSave, FIELD_FLOAT ),
-	DEFINE_FIELD( m_AirFinished, FIELD_TIME ),
-	DEFINE_FIELD( m_PainFinished, FIELD_TIME ),
-	
-	DEFINE_FIELD( m_iPlayerLocked, FIELD_INTEGER ),
+//DEFINE_FIELD( m_iConnected, FIELD_INTEGER ),
+// from edict_t
+DEFINE_FIELD( m_ArmorValue, FIELD_INTEGER ),
+DEFINE_FIELD( m_DmgOrigin, FIELD_VECTOR ),
+DEFINE_FIELD( m_DmgTake, FIELD_FLOAT ),
+DEFINE_FIELD( m_DmgSave, FIELD_FLOAT ),
+DEFINE_FIELD( m_AirFinished, FIELD_TIME ),
+DEFINE_FIELD( m_PainFinished, FIELD_TIME ),
 
-	DEFINE_AUTO_ARRAY( m_hViewModel, FIELD_EHANDLE ),
-	
-	DEFINE_FIELD( m_flMaxspeed, FIELD_FLOAT ),
-	DEFINE_FIELD( m_flWaterJumpTime, FIELD_TIME ),
-	DEFINE_FIELD( m_vecWaterJumpVel, FIELD_VECTOR ),
-	DEFINE_FIELD( m_nImpulse, FIELD_INTEGER ),
-	DEFINE_FIELD( m_flSwimSoundTime, FIELD_TIME ),
-	DEFINE_FIELD( m_vecLadderNormal, FIELD_VECTOR ),
+DEFINE_FIELD( m_iPlayerLocked, FIELD_INTEGER ),
 
-	DEFINE_FIELD( m_flFlashTime, FIELD_TIME ),
-	DEFINE_FIELD( m_nDrownDmgRate, FIELD_INTEGER ),
-	DEFINE_FIELD( m_iSuicideCustomKillFlags, FIELD_INTEGER ),
+DEFINE_AUTO_ARRAY( m_hViewModel, FIELD_EHANDLE ),
 
-	// NOT SAVED
-	//DEFINE_FIELD( m_vForcedOrigin, FIELD_VECTOR ),
-	//DEFINE_FIELD( m_bForceOrigin, FIELD_BOOLEAN ),
-	//DEFINE_FIELD( m_nTickBase, FIELD_INTEGER ),
-	//DEFINE_FIELD( m_LastCmd, FIELD_ ),
-	// DEFINE_FIELD( m_pCurrentCommand, CUserCmd ),
-	//DEFINE_FIELD( m_bGamePaused, FIELD_BOOLEAN ),
-	//	DEFINE_FIELD( m_iVehicleAnalogBias, FIELD_INTEGER ),
+DEFINE_FIELD( m_flMaxspeed, FIELD_FLOAT ),
+DEFINE_FIELD( m_flWaterJumpTime, FIELD_TIME ),
+DEFINE_FIELD( m_vecWaterJumpVel, FIELD_VECTOR ),
+DEFINE_FIELD( m_nImpulse, FIELD_INTEGER ),
+DEFINE_FIELD( m_flSwimSoundTime, FIELD_TIME ),
+DEFINE_FIELD( m_vecLadderNormal, FIELD_VECTOR ),
 
-	// m_flVehicleViewFOV
-	// m_vecVehicleViewOrigin
-	// m_vecVehicleViewAngles
-	// m_nVehicleViewSavedFrame
+DEFINE_FIELD( m_flFlashTime, FIELD_TIME ),
+DEFINE_FIELD( m_nDrownDmgRate, FIELD_INTEGER ),
+DEFINE_FIELD( m_iSuicideCustomKillFlags, FIELD_INTEGER ),
 
-	DEFINE_FIELD( m_bitsDamageType, FIELD_INTEGER ),
-	DEFINE_AUTO_ARRAY( m_rgbTimeBasedDamage, FIELD_CHARACTER ),
-	DEFINE_FIELD( m_fLastPlayerTalkTime, FIELD_FLOAT ),
-	DEFINE_FIELD( m_hLastWeapon, FIELD_EHANDLE ),
+// NOT SAVED
+//DEFINE_FIELD( m_vForcedOrigin, FIELD_VECTOR ),
+//DEFINE_FIELD( m_bForceOrigin, FIELD_BOOLEAN ),
+//DEFINE_FIELD( m_nTickBase, FIELD_INTEGER ),
+//DEFINE_FIELD( m_LastCmd, FIELD_ ),
+// DEFINE_FIELD( m_pCurrentCommand, CUserCmd ),
+//DEFINE_FIELD( m_bGamePaused, FIELD_BOOLEAN ),
+//	DEFINE_FIELD( m_iVehicleAnalogBias, FIELD_INTEGER ),
+
+// m_flVehicleViewFOV
+// m_vecVehicleViewOrigin
+// m_vecVehicleViewAngles
+// m_nVehicleViewSavedFrame
+
+DEFINE_FIELD( m_bitsDamageType, FIELD_INTEGER ),
+DEFINE_AUTO_ARRAY( m_rgbTimeBasedDamage, FIELD_CHARACTER ),
+DEFINE_FIELD( m_fLastPlayerTalkTime, FIELD_FLOAT ),
+DEFINE_FIELD( m_hLastWeapon, FIELD_EHANDLE ),
 
 #if !defined( NO_ENTITY_PREDICTION )
-	// DEFINE_FIELD( m_SimulatedByThisPlayer, CUtlVector < CHandle < CBaseEntity > > ),
+// DEFINE_FIELD( m_SimulatedByThisPlayer, CUtlVector < CHandle < CBaseEntity > > ),
 #endif
 
-	DEFINE_FIELD( m_flOldPlayerZ, FIELD_FLOAT ),
-	DEFINE_FIELD( m_flOldPlayerViewOffsetZ, FIELD_FLOAT ),
-	DEFINE_FIELD( m_bPlayerUnderwater, FIELD_BOOLEAN ),
-	DEFINE_FIELD( m_hViewEntity, FIELD_EHANDLE ),
+DEFINE_FIELD( m_flOldPlayerZ, FIELD_FLOAT ),
+DEFINE_FIELD( m_flOldPlayerViewOffsetZ, FIELD_FLOAT ),
+DEFINE_FIELD( m_bPlayerUnderwater, FIELD_BOOLEAN ),
+DEFINE_FIELD( m_hViewEntity, FIELD_EHANDLE ),
 
-	DEFINE_FIELD( m_hConstraintEntity, FIELD_EHANDLE ),
-	DEFINE_FIELD( m_vecConstraintCenter, FIELD_VECTOR ),
-	DEFINE_FIELD( m_flConstraintRadius, FIELD_FLOAT ),
-	DEFINE_FIELD( m_flConstraintWidth, FIELD_FLOAT ),
-	DEFINE_FIELD( m_flConstraintSpeedFactor, FIELD_FLOAT ),
-	DEFINE_FIELD( m_hZoomOwner, FIELD_EHANDLE ),
-	
-	DEFINE_FIELD( m_flLaggedMovementValue, FIELD_FLOAT ),
+DEFINE_FIELD( m_hConstraintEntity, FIELD_EHANDLE ),
+DEFINE_FIELD( m_vecConstraintCenter, FIELD_VECTOR ),
+DEFINE_FIELD( m_flConstraintRadius, FIELD_FLOAT ),
+DEFINE_FIELD( m_flConstraintWidth, FIELD_FLOAT ),
+DEFINE_FIELD( m_flConstraintSpeedFactor, FIELD_FLOAT ),
+DEFINE_FIELD( m_hZoomOwner, FIELD_EHANDLE ),
 
-	DEFINE_FIELD( m_vNewVPhysicsPosition, FIELD_VECTOR ),
-	DEFINE_FIELD( m_vNewVPhysicsVelocity, FIELD_VECTOR ),
+DEFINE_FIELD( m_flLaggedMovementValue, FIELD_FLOAT ),
 
-	DEFINE_FIELD( m_bSinglePlayerGameEnding, FIELD_BOOLEAN ),
-	DEFINE_ARRAY( m_szLastPlaceName, FIELD_CHARACTER, MAX_PLACE_NAME_LENGTH ),
+DEFINE_FIELD( m_vNewVPhysicsPosition, FIELD_VECTOR ),
+DEFINE_FIELD( m_vNewVPhysicsVelocity, FIELD_VECTOR ),
 
-	DEFINE_FIELD( m_autoKickDisabled, FIELD_BOOLEAN ),
+DEFINE_FIELD( m_bSinglePlayerGameEnding, FIELD_BOOLEAN ),
+DEFINE_ARRAY( m_szLastPlaceName, FIELD_CHARACTER, MAX_PLACE_NAME_LENGTH ),
 
-#ifdef MAPBASE
-	DEFINE_FIELD( m_bInTriggerFall, FIELD_BOOLEAN ),
+DEFINE_FIELD( m_autoKickDisabled, FIELD_BOOLEAN ),
 
-	DEFINE_FIELD( m_bDrawPlayerModelExternally, FIELD_BOOLEAN ),
-#endif
+// Function Pointers
+DEFINE_FUNCTION( PlayerDeathThink ),
 
-	// Function Pointers
-	DEFINE_FUNCTION( PlayerDeathThink ),
+// Inputs
+DEFINE_INPUTFUNC( FIELD_INTEGER, "SetHealth", InputSetHealth ),
+DEFINE_INPUTFUNC( FIELD_BOOLEAN, "SetHUDVisibility", InputSetHUDVisibility ),
+DEFINE_INPUTFUNC( FIELD_STRING, "SetFogController", InputSetFogController ),
+DEFINE_INPUTFUNC( FIELD_STRING, "HandleMapEvent", InputHandleMapEvent ),
 
-	// Inputs
-	DEFINE_INPUTFUNC( FIELD_INTEGER, "SetHealth", InputSetHealth ),
-	DEFINE_INPUTFUNC( FIELD_BOOLEAN, "SetHUDVisibility", InputSetHUDVisibility ),
-#ifdef MAPBASE // From Alien Swarm SDK (kind of)
-	DEFINE_INPUTFUNC( FIELD_INPUT, "SetFogController", InputSetFogController ),
-	DEFINE_INPUTFUNC( FIELD_INPUT, "SetPostProcessController", InputSetPostProcessController ),
-	DEFINE_INPUTFUNC( FIELD_INPUT, "SetColorCorrectionController", InputSetColorCorrectionController ),
-#else
-	DEFINE_INPUTFUNC( FIELD_STRING, "SetFogController", InputSetFogController ),
-#endif
-	DEFINE_INPUTFUNC( FIELD_STRING, "HandleMapEvent", InputHandleMapEvent ),
-#ifdef MAPBASE
-	DEFINE_INPUTFUNC( FIELD_BOOLEAN, "SetSuppressAttacks", InputSetSuppressAttacks ),
-#endif
+DEFINE_FIELD( m_nNumCrouches, FIELD_INTEGER ),
+DEFINE_FIELD( m_bDuckToggled, FIELD_BOOLEAN ),
+DEFINE_FIELD( m_flForwardMove, FIELD_FLOAT ),
+DEFINE_FIELD( m_flSideMove, FIELD_FLOAT ),
+DEFINE_FIELD( m_vecPreviouslyPredictedOrigin, FIELD_POSITION_VECTOR ),
 
-	DEFINE_FIELD( m_nNumCrouches, FIELD_INTEGER ),
-	DEFINE_FIELD( m_bDuckToggled, FIELD_BOOLEAN ),
-	DEFINE_FIELD( m_flForwardMove, FIELD_FLOAT ),
-	DEFINE_FIELD( m_flSideMove, FIELD_FLOAT ),
-	DEFINE_FIELD( m_vecPreviouslyPredictedOrigin, FIELD_POSITION_VECTOR ), 
+DEFINE_FIELD( m_nNumCrateHudHints, FIELD_INTEGER ),
 
-	DEFINE_FIELD( m_nNumCrateHudHints, FIELD_INTEGER ),
-
-#ifdef MAPBASE // From Alien Swarm SDK
-	DEFINE_FIELD( m_hPostProcessCtrl, FIELD_EHANDLE ),
-	DEFINE_FIELD( m_hColorCorrectionCtrl, FIELD_EHANDLE ),
-#endif
+DEFINE_FIELD( m_bLessClip, FIELD_BOOLEAN ),
+DEFINE_FIELD( m_bIsPowerSliding, FIELD_BOOLEAN),
+DEFINE_FIELD( m_nWallRunState, FIELD_INTEGER),
+DEFINE_FIELD( m_vecWallNorm, FIELD_POSITION_VECTOR ),
 
 	// DEFINE_FIELD( m_nBodyPitchPoseParam, FIELD_INTEGER ),
 	// DEFINE_ARRAY( m_StepSoundCache, StepSoundCache_t,  2  ),
@@ -494,78 +468,6 @@ BEGIN_DATADESC( CBasePlayer )
 	// DEFINE_UTLVECTOR( m_vecPlayerCmdInfo ),
 	// DEFINE_UTLVECTOR( m_vecPlayerSimInfo ),
 END_DATADESC()
-
-#ifdef MAPBASE_VSCRIPT
-// TODO: Better placement?
-ScriptHook_t	g_Hook_PlayerRunCommand;
-
-BEGIN_ENT_SCRIPTDESC( CBasePlayer, CBaseCombatCharacter, "The player entity." )
-
-	DEFINE_SCRIPTFUNC_NAMED( ScriptIsPlayerNoclipping, "IsNoclipping", "Returns true if the player is in noclip mode." ) 
-
-	DEFINE_SCRIPTFUNC_NAMED( VScriptGetExpresser, "GetExpresser", "Gets a handle for this player's expresser." )
-
-	DEFINE_SCRIPTFUNC( GetPlayerName, "Gets the player's name." )
-	DEFINE_SCRIPTFUNC( GetUserID, "Gets the player's user ID." )
-	DEFINE_SCRIPTFUNC_NAMED( GetUserID, "GetPlayerUserId", SCRIPT_HIDE )
-	DEFINE_SCRIPTFUNC( GetNetworkIDString, "Gets the player's network (i.e. Steam) ID." )
-
-	DEFINE_SCRIPTFUNC( FragCount, "Gets the number of frags (kills) this player has in a multiplayer game." )
-	DEFINE_SCRIPTFUNC( DeathCount, "Gets the number of deaths this player has had in a multiplayer game." )
-	DEFINE_SCRIPTFUNC( IsConnected, "Returns true if this player is connected." )
-	DEFINE_SCRIPTFUNC( IsDisconnecting, "Returns true if this player is disconnecting." )
-	DEFINE_SCRIPTFUNC( IsSuitEquipped, "Returns true if this player had the HEV suit equipped." )
-
-	DEFINE_SCRIPTFUNC_NAMED( ArmorValue, "GetArmor", "Gets the player's armor." )
-	DEFINE_SCRIPTFUNC_NAMED( SetArmorValue, "SetArmor", "Sets the player's armor." )
-
-	DEFINE_SCRIPTFUNC( FlashlightIsOn, "Returns true if the flashlight is on." )
-	DEFINE_SCRIPTFUNC( FlashlightTurnOn, "Turns on the flashlight." )
-	DEFINE_SCRIPTFUNC( FlashlightTurnOff, "Turns off the flashlight." )
-
-	DEFINE_SCRIPTFUNC( DisableButtons, "Disables the specified button mask." )
-	DEFINE_SCRIPTFUNC( EnableButtons, "Enables the specified button mask if it was disabled before." )
-	DEFINE_SCRIPTFUNC( ForceButtons, "Forces the specified button mask." )
-	DEFINE_SCRIPTFUNC( UnforceButtons, "Unforces the specified button mask if it was forced before." )
-
-	DEFINE_SCRIPTFUNC( GetButtons, "Gets the player's active buttons." )
-	DEFINE_SCRIPTFUNC( GetButtonPressed, "Gets the player's currently pressed buttons." )
-	DEFINE_SCRIPTFUNC( GetButtonReleased, "Gets the player's just-released buttons." )
-	DEFINE_SCRIPTFUNC( GetButtonLast, "Gets the player's previously active buttons." )
-	DEFINE_SCRIPTFUNC( GetButtonDisabled, "Gets the player's currently unusable buttons." )
-	DEFINE_SCRIPTFUNC( GetButtonForced, "Gets the player's currently forced buttons." )
-
-	DEFINE_SCRIPTFUNC( GetFOV, "" )
-	DEFINE_SCRIPTFUNC_NAMED( ScriptGetFOVOwner, "GetFOVOwner", "Gets current view owner." )
-	DEFINE_SCRIPTFUNC_NAMED( ScriptSetFOV, "SetFOV", "Sets player FOV regardless of view owner." )
-
-	DEFINE_SCRIPTFUNC( ViewPunch, "Punches the player's view with the specified vector." )
-	DEFINE_SCRIPTFUNC( SetMuzzleFlashTime, "Sets the player's muzzle flash time for AI." )
-	DEFINE_SCRIPTFUNC( SetSuitUpdate, "Sets an update for the player's HEV suit." )
-
-	DEFINE_SCRIPTFUNC_NAMED( ScriptGetAutoaimVector, "GetAutoaimVector", "Gets the player's autoaim shooting direction with the specified scale." )
-	DEFINE_SCRIPTFUNC_NAMED( ScriptGetAutoaimVectorCustomMaxDist, "GetAutoaimVectorCustomMaxDist", "Gets the player's autoaim shooting direction with the specified scale and a custom max distance." )
-	DEFINE_SCRIPTFUNC( ShouldAutoaim, "Returns true if the player should be autoaiming." )
-
-	DEFINE_SCRIPTFUNC_NAMED( ScriptGetEyeForward, "GetEyeForward", "Gets the player's forward eye vector." )
-	DEFINE_SCRIPTFUNC_NAMED( ScriptGetEyeRight, "GetEyeRight", "Gets the player's right eye vector." )
-	DEFINE_SCRIPTFUNC_NAMED( ScriptGetEyeUp, "GetEyeUp", "Gets the player's up eye vector." )
-
-	DEFINE_SCRIPTFUNC_NAMED( ScriptGetViewModel, "GetViewModel", "Returns the viewmodel of the specified index." )
-
-	// 
-	// Hooks
-	// 
-	BEGIN_SCRIPTHOOK( g_Hook_PlayerRunCommand, "PlayerRunCommand", FIELD_VOID, "Called when running a player command on the server." )
-		DEFINE_SCRIPTHOOK_PARAM( "command", FIELD_HSCRIPT )
-	END_SCRIPTHOOK()
-
-END_SCRIPTDESC();
-#else
-BEGIN_ENT_SCRIPTDESC( CBasePlayer, CBaseAnimating, "The player entity." )
-	DEFINE_SCRIPTFUNC_NAMED( ScriptIsPlayerNoclipping, "IsNoclipping", "Returns true if the player is in noclip mode." ) 
-END_SCRIPTDESC();
-#endif
 
 int giPrecacheGrunt = 0;
 
@@ -632,46 +534,6 @@ void CBasePlayer::DestroyViewModels( void )
 		m_hViewModel.Set( i, NULL );
 	}
 }
-
-#ifdef MAPBASE
-extern char g_szDefaultHandsModel[MAX_PATH];
-extern int g_iDefaultHandsSkin;
-extern int g_iDefaultHandsBody;
-
-//-----------------------------------------------------------------------------
-// Purpose: 
-//-----------------------------------------------------------------------------
-void CBasePlayer::CreateHandModel(int index, int iOtherVm)
-{
-	Assert(index >= 0 && index < MAX_VIEWMODELS && iOtherVm >= 0 && iOtherVm < MAX_VIEWMODELS );
-
-	if (GetViewModel( index ))
-	{
-		// This can happen if the player respawns
-		// Don't draw unless we're already using a hands weapon
-		if ( !GetActiveWeapon() || !GetActiveWeapon()->UsesHands() )
-			GetViewModel( index )->AddEffects( EF_NODRAW );
-		return;
-	}
-
-	CBaseViewModel *vm = (CBaseViewModel *)CreateEntityByName("hand_viewmodel");
-	if (vm)
-	{
-		vm->SetAbsOrigin(GetAbsOrigin());
-		vm->SetOwner(this);
-		vm->SetIndex(index);
-
-		vm->SetModel( g_szDefaultHandsModel );
-		vm->m_nSkin = g_iDefaultHandsSkin;
-		vm->m_nBody = g_iDefaultHandsBody;
-
-		DispatchSpawn(vm);
-		vm->FollowEntity(GetViewModel(iOtherVm), true);
-		m_hViewModel.Set(index, vm);
-		vm->AddEffects( EF_NODRAW );
-	}
-}
-#endif
 
 //-----------------------------------------------------------------------------
 // Purpose: Static member function to create a player of the specified class
@@ -781,8 +643,6 @@ CBasePlayer::CBasePlayer( )
 
 	m_flLastUserCommandTime = 0.f;
 	m_flMovementTimeForUserCmdProcessingRemaining = 0.0f;
-
-	m_hPostProcessCtrl.Set( NULL );
 }
 
 CBasePlayer::~CBasePlayer( )
@@ -797,11 +657,6 @@ CBasePlayer::~CBasePlayer( )
 //-----------------------------------------------------------------------------
 void CBasePlayer::UpdateOnRemove( void )
 {
-	if ( !g_pGameRules->IsMultiplayer() && g_pScriptVM )
-	{
-		g_pScriptVM->SetValue( "player", SCRIPT_VARIANT_NULL );
-	}
-
 	VPhysicsDestroyObject();
 
 	// Remove him from his current team
@@ -880,13 +735,9 @@ int CBasePlayer::ShouldTransmit( const CCheckTransmitInfo *pInfo )
 
 bool CBasePlayer::WantsLagCompensationOnEntity( const CBasePlayer *pPlayer, const CUserCmd *pCmd, const CBitVec<MAX_EDICTS> *pEntityTransmitBits ) const
 {
-	//Tony; only check teams in teamplay
-	if ( gpGlobals->teamplay )
-	{
-		// Team members shouldn't be adjusted unless friendly fire is on.
-		if ( !friendlyfire.GetInt() && pPlayer->GetTeamNumber() == GetTeamNumber() )
-			return false;
-	}
+	// Team members shouldn't be adjusted unless friendly fire is on.
+	if ( !friendlyfire.GetInt() && pPlayer->GetTeamNumber() == GetTeamNumber() )
+		return false;
 
 	// If this entity hasn't been transmitted to us and acked, then don't bother lag compensating it.
 	if ( pEntityTransmitBits && !pEntityTransmitBits->Get( pPlayer->entindex() ) )
@@ -1063,11 +914,7 @@ void CBasePlayer::TraceAttack( const CTakeDamageInfo &inputInfo, const Vector &v
 			//  If an NPC check if friendly fire is disallowed
 			// --------------------------------------------------
 			CAI_BaseNPC *pNPC = info.GetAttacker()->MyNPCPointer();
-#ifdef MAPBASE
-			if ( pNPC && (pNPC->CapabilitiesGet() & bits_CAP_NO_HIT_PLAYER) && pNPC->IRelationType( this ) > D_FR )
-#else
 			if ( pNPC && (pNPC->CapabilitiesGet() & bits_CAP_NO_HIT_PLAYER) && pNPC->IRelationType( this ) != D_HT )
-#endif
 				return;
 
 			// Prevent team damage here so blood doesn't appear
@@ -1106,22 +953,10 @@ void CBasePlayer::TraceAttack( const CTakeDamageInfo &inputInfo, const Vector &v
 			break;
 		}
 
-#ifdef MAPBASE
-
-		// Damage filter bleed control needs to exist on all DLLs
-		bool bShouldBleed = 
-#ifdef HL2_EPISODIC
-			!g_pGameRules->Damage_ShouldNotBleed( info.GetDamageType() ) &&
-#endif
-			DamageFilterAllowsBlood( info );
-
-		if ( bShouldBleed )
-#else
 #ifdef HL2_EPISODIC
 		// If this damage type makes us bleed, then do so
 		bool bShouldBleed = !g_pGameRules->Damage_ShouldNotBleed( info.GetDamageType() );
 		if ( bShouldBleed )
-#endif
 #endif
 		{
 			SpawnBlood(ptr->endpos, vecDir, BloodColor(), info.GetDamage());// a little surface blood.
@@ -1725,15 +1560,6 @@ void CBasePlayer::RemoveAllItems( bool removeSuit )
 	RemoveAllWeapons();
  	RemoveAllAmmo();
 
-#ifdef MAPBASE
-	// Hide hand viewmodel
-	CBaseViewModel *vm = GetViewModel( 1 );
-	if ( vm )
-	{
-		vm->AddEffects( EF_NODRAW );
-	}
-#endif
-
 	if ( removeSuit )
 	{
 		RemoveSuit();
@@ -1742,10 +1568,9 @@ void CBasePlayer::RemoveAllItems( bool removeSuit )
 	UpdateClientData();
 }
 
-//Tony; correct this for base code so that IsDead will be correct accross all games.
 bool CBasePlayer::IsDead() const
 {
-	return m_lifeState != LIFE_ALIVE;
+	return m_lifeState == LIFE_DEAD;
 }
 
 static float DamageForce( const Vector &size, float damage )
@@ -2976,16 +2801,20 @@ bool CBasePlayer::CanPickupObject( CBaseEntity *pObject, float massLimit, float 
 		return false;
 
 	//Must move with physics
-	if ( pObject->GetMoveType() != MOVETYPE_VPHYSICS )
+	if (pObject->GetMoveType() != MOVETYPE_VPHYSICS &&
+		pObject->Classify() != CLASS_HEADCRAB) // make an exception for headcrabs
+	{
 		return false;
+	}
 
 	IPhysicsObject *pList[VPHYSICS_MAX_OBJECT_LIST_COUNT];
 	int count = pObject->VPhysicsGetObjectList( pList, ARRAYSIZE(pList) );
 
 	//Must have a physics object
 	if (!count)
+	{
 		return false;
-
+	}
 	float objectMass = 0;
 	bool checkEnable = false;
 	for ( int i = 0; i < count; i++ )
@@ -2995,10 +2824,14 @@ bool CBasePlayer::CanPickupObject( CBaseEntity *pObject, float massLimit, float 
 		{
 			checkEnable = true;
 		}
-		if ( pList[i]->GetGameFlags() & FVPHYSICS_NO_PLAYER_PICKUP )
+		if (pList[i]->GetGameFlags() & FVPHYSICS_NO_PLAYER_PICKUP)
+		{
 			return false;
-		if ( pList[i]->IsHinged() )
+		}
+		if (pList[i]->IsHinged())
+		{
 			return false;
+		}
 	}
 
 
@@ -3034,7 +2867,6 @@ bool CBasePlayer::CanPickupObject( CBaseEntity *pObject, float massLimit, float 
 		if ( size.x > sizeLimit || size.y > sizeLimit || size.z > sizeLimit )
 			return false;
 	}
-
 	return true;
 #else
 	return false;
@@ -3046,10 +2878,6 @@ float CBasePlayer::GetHeldObjectMass( IPhysicsObject *pHeldObject )
 	return 0;
 }
 
-CBaseEntity	*CBasePlayer::GetHeldObject( void )
-{
-	return NULL;
-}
 
 //-----------------------------------------------------------------------------
 // Purpose:	Server side of jumping rules.  Most jumping logic is already
@@ -3583,7 +3411,8 @@ void CBasePlayer::PhysicsSimulate( void )
 
 unsigned int CBasePlayer::PhysicsSolidMaskForEntity() const
 {
-	return MASK_PLAYERSOLID;
+	// Keep this consistent with GameMovement::PlayerSolidMask
+	return (m_bLessClip) ? MASK_LESSCLIP : MASK_PLAYERSOLID;
 }
 
 //-----------------------------------------------------------------------------
@@ -3863,22 +3692,33 @@ void CBasePlayer::PlayerRunCommand(CUserCmd *ucmd, IMoveHelper *moveHelper)
 			}
 		}
 	}
-
-#ifdef MAPBASE_VSCRIPT
-	// Movement hook for VScript
-	if (m_ScriptScope.IsInitialized() && g_Hook_PlayerRunCommand.CanRunInScope(m_ScriptScope))
-	{
-		HSCRIPT hCmd = g_pScriptVM->RegisterInstance( reinterpret_cast<CScriptUserCmd*>(ucmd) );
-
-		// command
-		ScriptVariant_t args[] = { hCmd };
-		g_Hook_PlayerRunCommand.Call( m_ScriptScope, NULL, args );
-
-		g_pScriptVM->RemoveInstance( hCmd );
-	}
-#endif
 	
+
+	// If they released quick melee button, debounce the other attack buttons
+	// (so we don't accidentally fire a grenade by releasing the quick melee key slightly before 
+	// attack2, for example)
+	if (m_afButtonReleased & IN_ATTACK3) {
+		m_afButtonDebounced |= IN_ATTACK | IN_ATTACK2;
+	}
+
+	// which buttons that were set to be debounced have been released (not pressed)?
+	int nDebouncedButtonsReleased = (~(ucmd->buttons) & m_afButtonDebounced);
+
+	// clear the debounce for the buttons that were released
+	m_afButtonDebounced &= ~nDebouncedButtonsReleased;
+	
+	// remove any buttons we are still debouncing from the command
+	ucmd->buttons &= ~m_afButtonDebounced;
+
+
 	PlayerMove()->RunCommand(this, ucmd, moveHelper);
+
+	// update the timer since the last mouse move
+	if (ucmd->mousedx || ucmd->mousedy)
+	{
+		m_flAutoViewTime = gpGlobals->curtime;
+	}
+	
 }
 
 //-----------------------------------------------------------------------------
@@ -4227,12 +4067,6 @@ void CBasePlayer::CheckTimeBasedDamage()
 			case itbd_Acid:
 //				OnTakeDamage(pev, pev, ACID_DAMAGE, DMG_GENERIC);
 				bDuration = ACID_DURATION;
-#ifdef MAPBASE
-				// Prevents ant workers from inducing the Flash Plague, flashing the player's screen every time they take damage henceforth.
-				// I think people came up with a different name, but I can't bother to look for it right now.
-				// This fix might prevent other acid damage stuff as well, so it's not episodic-exclusive.
-				m_bitsDamageType &= ~(DMG_ACID);
-#endif
 				break;
 			case itbd_SlowBurn:
 //				OnTakeDamage(pev, pev, SLOWBURN_DAMAGE, DMG_GENERIC);
@@ -4352,12 +4186,6 @@ void CBasePlayer::UpdateGeigerCounter( void )
 	{
 		range = clamp( (int)range * 4, 0, 255 );
 	}
-
-#ifdef MAPBASE
-	// If the geiger is disabled, just use 255
-	if (HasSpawnFlags(SF_PLAYER_NO_GEIGER))
-		range = 255;
-#endif
 
 	if (range != m_igeigerRangePrev)
 	{
@@ -4705,67 +4533,23 @@ void CBasePlayer::ForceOrigin( const Vector &vecOrigin )
 	m_vForcedOrigin = vecOrigin;
 }
 
-#ifdef MAPBASE // From Alien Swarm SDK
-//--------------------------------------------------------------------------------------------------------
-void CBasePlayer::OnTonemapTriggerStartTouch( CTonemapTrigger *pTonemapTrigger )
-{
-	m_hTriggerTonemapList.FindAndRemove( pTonemapTrigger );
-	m_hTriggerTonemapList.AddToTail( pTonemapTrigger );
-}
-
-
-//--------------------------------------------------------------------------------------------------------
-void CBasePlayer::OnTonemapTriggerEndTouch( CTonemapTrigger *pTonemapTrigger )
-{
-	m_hTriggerTonemapList.FindAndRemove( pTonemapTrigger );
-}
-
-
-//--------------------------------------------------------------------------------------------------------
-void CBasePlayer::UpdateTonemapController( void )
-{
-	// For now, Mapbase uses Tony Sergi's Source 2007 tonemap fixes.
-	// Alien Swarm SDK tonemap controller code copies the parameters instead.
-
-	CEnvTonemapController *pController = NULL;
-
-	if (m_hTriggerTonemapList.Count() > 0)
-	{
-		pController = static_cast<CEnvTonemapController*>(m_hTriggerTonemapList.Tail()->GetTonemapController());
-	}
-	else if (TheTonemapSystem()->GetMasterTonemapController())
-	{
-		pController = static_cast<CEnvTonemapController*>(TheTonemapSystem()->GetMasterTonemapController());
-	}
-
-	if (pController)
-	{
-		//m_hTonemapController = TheTonemapSystem()->GetMasterTonemapController();
-
-		if (pController->m_bUseCustomAutoExposureMax)
-			m_Local.m_TonemapParams.m_flAutoExposureMax = pController->m_flCustomAutoExposureMax;
-
-		if (pController->m_bUseCustomAutoExposureMin)
-			m_Local.m_TonemapParams.m_flAutoExposureMin = pController->m_flCustomAutoExposureMin;
-
-		if (pController->m_bUseCustomBloomScale)
-			m_Local.m_TonemapParams.m_flBloomScale = pController->m_flCustomBloomScale;
-	}
-}
-#endif
-
 //-----------------------------------------------------------------------------
 // Purpose: 
 //-----------------------------------------------------------------------------
 void CBasePlayer::PostThink()
 {
 	m_vecSmoothedVelocity = m_vecSmoothedVelocity * SMOOTHING_FACTOR + GetAbsVelocity() * ( 1 - SMOOTHING_FACTOR );
-
-#ifdef MAPBASE // From Alien Swarm SDK
-	UpdateTonemapController();
-	UpdateFXVolume();
-#endif
-
+	
+	// If the smoothed velocity becomes invalid somehow, it
+	// causes issues with the AI - enemy shoot direction vectors
+	// get messed up. Just reset to 0 if it becomes invalid
+	if ( !m_vecSmoothedVelocity.IsValid() )
+	{
+		float duration;
+		EmitSound( "Player.Beeps3", 0.0, &duration );
+		Msg( "Player's smoothed velocity had become invalid.\n" );
+		m_vecSmoothedVelocity.Init();
+	}
 	if ( !g_fGameOver && !m_iPlayerLocked )
 	{
 		if ( IsAlive() )
@@ -5143,55 +4927,6 @@ void CBasePlayer::InitialSpawn( void )
 }
 
 //-----------------------------------------------------------------------------
-// Purpose: clear our m_Local.m_TonemapParams to -1.
-//-----------------------------------------------------------------------------
-void CBasePlayer::ClearTonemapParams( void )
-{
-	//Tony; clear all the variables to -1.0
-	m_Local.m_TonemapParams.m_flAutoExposureMin = -1.0f;
-	m_Local.m_TonemapParams.m_flAutoExposureMax = -1.0f;
-	m_Local.m_TonemapParams.m_flTonemapScale = -1.0f;
-	m_Local.m_TonemapParams.m_flBloomScale = -1.0f;
-	m_Local.m_TonemapParams.m_flTonemapRate = -1.0f;
-}
-void CBasePlayer::InputSetTonemapScale( inputdata_t &inputdata )
-{
-	m_Local.m_TonemapParams.m_flTonemapScale = inputdata.value.Float();
-}
-
-void CBasePlayer::InputSetTonemapRate( inputdata_t &inputdata )
-{
-	m_Local.m_TonemapParams.m_flTonemapRate = inputdata.value.Float();
-}
-void CBasePlayer::InputSetAutoExposureMin( inputdata_t &inputdata )
-{
-	m_Local.m_TonemapParams.m_flAutoExposureMin = inputdata.value.Float();
-}
-
-void CBasePlayer::InputSetAutoExposureMax( inputdata_t &inputdata )
-{
-	m_Local.m_TonemapParams.m_flAutoExposureMax = inputdata.value.Float();
-}
-
-void CBasePlayer::InputSetBloomScale( inputdata_t &inputdata )
-{
-	m_Local.m_TonemapParams.m_flBloomScale = inputdata.value.Float();
-}
-
-//Tony; restore defaults (set min/max to -1.0 so nothing gets overridden)
-void CBasePlayer::InputUseDefaultAutoExposure( inputdata_t &inputdata )
-{
-	m_Local.m_TonemapParams.m_flAutoExposureMin = -1.0f;
-	m_Local.m_TonemapParams.m_flAutoExposureMax = -1.0f;
-	m_Local.m_TonemapParams.m_flTonemapRate = -1.0f;
-}
-void CBasePlayer::InputUseDefaultBloomScale( inputdata_t &inputdata )
-{
-	m_Local.m_TonemapParams.m_flBloomScale = -1.0f;
-}
-//	void	InputSetBloomScaleRange( inputdata_t &inputdata );
-
-//-----------------------------------------------------------------------------
 // Purpose: Called everytime the player respawns
 //-----------------------------------------------------------------------------
 void CBasePlayer::Spawn( void )
@@ -5201,9 +4936,6 @@ void CBasePlayer::Spawn( void )
 	{
 		Hints()->ResetHints();
 	}
-
-	//Tony; make sure tonemap params is cleared.
-	ClearTonemapParams();
 
 	SetClassname( "player" );
 
@@ -5242,9 +4974,6 @@ void CBasePlayer::Spawn( void )
 
 	// Initialize the fog and postprocess controllers.
 	InitFogController();
-#ifdef MAPBASE // From Alien Swarm SDK
-	InitPostProcessController();
-#endif
 
 	m_DmgTake		= 0;
 	m_DmgSave		= 0;
@@ -5269,12 +4998,7 @@ void CBasePlayer::Spawn( void )
 	if ( !m_fGameHUDInitialized )
 		g_pGameRules->SetDefaultPlayerTeam( this );
 
-#ifdef MAPBASE
-	CBaseEntity *pSpawnPoint = g_pGameRules->GetPlayerSpawnSpot( this );
-	SpawnedAtPoint( pSpawnPoint );
-#else
 	g_pGameRules->GetPlayerSpawnSpot( this );
-#endif
 
 	m_Local.m_bDucked = false;// This will persist over round restart if you hold duck otherwise. 
 	m_Local.m_bDucking = false;
@@ -5310,9 +5034,6 @@ void CBasePlayer::Spawn( void )
 	enginesound->SetPlayerDSP( user, 0, false );
 
 	CreateViewModel();
-#ifdef MAPBASE
-	CreateHandModel();
-#endif
 
 	SetCollisionGroup( COLLISION_GROUP_PLAYER );
 
@@ -5343,11 +5064,6 @@ void CBasePlayer::Spawn( void )
 	m_flLaggedMovementValue = 1.0f;
 	m_vecSmoothedVelocity = vec3_origin;
 	InitVCollision( GetAbsOrigin(), GetAbsVelocity() );
-
-	if ( !g_pGameRules->IsMultiplayer() && g_pScriptVM )
-	{
-		g_pScriptVM->SetValue( "player", GetScriptInstance() );
-	}
 
 #if !defined( TF_DLL )
 	IGameEvent *event = gameeventmanager->CreateEvent( "player_spawn" );
@@ -5401,6 +5117,16 @@ void CBasePlayer::Precache( void )
 	PrecacheScriptSound( "Player.DrownContinue" );
 	PrecacheScriptSound( "Player.Wade" );
 	PrecacheScriptSound( "Player.AmbientUnderWater" );
+	PrecacheScriptSound( "Player.AirJump" );
+	m_hssPowerSlideSound = PrecacheScriptSound( "Player.PowerSlide" );
+	m_hssWallRunSound = PrecacheScriptSound( "Player.WallRun" );
+	PrecacheScriptSound( "Mech.BulletImpact" );
+	PrecacheScriptSound( "Flesh.BulletImpact" );
+	PrecacheScriptSound( "Biomech.BulletImpact" );
+	PrecacheScriptSound( "Player.Beeps3" );
+	PrecacheScriptSound( "Player.Beeps2" );
+	PrecacheScriptSound( "Player.Beeps1" );
+	PrecacheScriptSound( "Player.Beeps0" );
 	enginesound->PrecacheSentenceGroup( "HEV" );
 
 	// These are always needed
@@ -5443,10 +5169,6 @@ void CBasePlayer::Precache( void )
 	SetPlayerUnderwter( false );
 
 	m_iTrain = TRAIN_NEW;
-#endif
-
-#ifdef MAPBASE
-	PrecacheModel( g_szDefaultHandsModel );
 #endif
 
 	m_iClientBattery = -1;
@@ -5567,14 +5289,6 @@ void CBasePlayer::OnRestore( void )
 	m_nVehicleViewSavedFrame = 0;
 
 	m_nBodyPitchPoseParam = LookupPoseParameter( "body_pitch" );
-
-	// HACK: (03/25/09) Then the player goes across a transition it doesn't spawn and register
-	// it's instance. We're hacking around this for now, but this will go away when we get around to 
-	// having entities cross transitions and keep their script state.
-	if ( !g_pGameRules->IsMultiplayer() && g_pScriptVM && (gpGlobals->eLoadType == MapLoad_Transition) )
-	{
-		g_pScriptVM->SetValue( "player", GetScriptInstance() );
-	}
 }
 
 /* void CBasePlayer::SetTeamName( const char *pTeamName )
@@ -5738,6 +5452,124 @@ bool CBasePlayer::CanEnterVehicle( IServerVehicle *pVehicle, int nRole )
 
 	return true;
 }
+
+
+CBaseCombatWeapon* GetFragWeap( CBasePlayer* pPlayer )
+{
+	if (!pPlayer)
+		return NULL;
+
+	return pPlayer->Weapon_OwnsThisType( "weapon_frag" );
+}
+
+bool zHasFrags( CBasePlayer* pPlayer )
+{
+	if (!pPlayer)
+		return false;
+
+	CBaseCombatWeapon* pWeap = GetFragWeap( pPlayer );
+	if (!pWeap)
+		return false;
+
+	return pWeap->HasAmmo();
+}
+
+
+
+
+//-----------------------------------------------------------------------------
+// Purpose: Handles Grenade1 keypress
+//-----------------------------------------------------------------------------
+void CBasePlayer::ChuckGrenade( void )
+{
+	if (m_afButtonPressed & IN_GRENADE1 && zHasFrags( this ))
+	{
+		m_flFragCookStartTime = gpGlobals->curtime;
+		return;
+	}
+
+	if (!(m_afButtonReleased & IN_GRENADE1) ||
+		(m_afButtonPressed & IN_GRENADE1))
+	{
+		return;
+	}
+
+	if (IsObserver())
+		return;
+
+    float flDur; // for sounds
+	CBaseCombatWeapon* pWeap = GetFragWeap( this );
+	if (!zHasFrags( this ))
+	{
+		EmitSound( "Player.UseDeny", 0.0, &flDur );
+		return;
+	}
+
+	CWeaponFrag* pFrag = dynamic_cast<CWeaponFrag*>(pWeap);
+	// Reduce grenade fuse time but leave enough time to throw the grenade clear
+	float flCookTime = MIN( MAX_FRAG_COOK_TIME, gpGlobals->curtime - m_flFragCookStartTime );
+	pFrag->ChuckGrenade( this, flCookTime );
+	m_flFragCookStartTime = 0.0;
+
+	// Beep for how many grenades are left if running low.
+	// Would ideally display a HUD element but so much more work...
+	int iAmmoCount = GetAmmoCount( pWeap->m_iPrimaryAmmoType );
+
+	switch (iAmmoCount) {
+	case 3:	EmitSound( "Player.Beeps3", 0.0, &flDur ); break;
+	case 2: EmitSound( "Player.Beeps2", 0.0, &flDur ); break;
+	case 1: EmitSound( "Player.Beeps1", 0.0, &flDur ); break;
+	case 0: EmitSound( "Player.Beeps0", 0.0, &flDur ); break;
+	default: break;
+	}
+
+
+
+}
+
+//
+// Handles the melee key. 
+//
+void CBasePlayer::CheckMelee( void )
+{
+	if (IsObserver())
+		return;
+	CBaseCombatWeapon* pCrowbar = Weapon_OwnsThisType( "weapon_crowbar" );
+	CBaseHLBludgeonWeapon* pClub = dynamic_cast<CBaseHLBludgeonWeapon*>(pCrowbar);
+	if (m_afButtonPressed & IN_ATTACK3 && (pClub))
+	{
+		// If they're holding anything with the gravity gun, drop it first
+		CBaseCombatWeapon* current = GetActiveWeapon();
+		if (current && FClassnameIs( current, "weapon_physcannon" ))
+		{
+			PhysCannonForceDrop( current, NULL );
+		}
+
+		Weapon_Switch( pClub );
+		pClub->SetQuickMelee( QMELEE_DOING );
+	}
+
+	// If they pressed or are holding down the button, 
+	// we're done
+	if (!(m_afButtonReleased & IN_ATTACK3) ||
+		(m_afButtonPressed & IN_ATTACK3))
+	{
+		return;
+	}
+
+	// If we get here it means they released the button
+	if ( pClub )
+	{
+		pClub->SetQuickMelee( QMELEE_DONE );
+		// Responsibility for the attack is delegated to the weapon
+		
+		// Set player melee state so they know to do a fast weapon deploy
+		m_nMeleeState = MELEE_DONE;
+	}
+
+}
+
+
 
 //-----------------------------------------------------------------------------
 // Purpose: Put this player in a vehicle 
@@ -6028,25 +5860,6 @@ CBaseEntity	*CBasePlayer::GiveNamedItem( const char *pszName, int iSubType )
 
 	DispatchSpawn( pent );
 
-#ifdef MAPBASE
-	if ( pWeapon )
-	{
-		for (int i=0;i<MAX_WEAPONS;i++) 
-		{
-			if ( m_hMyWeapons[i].Get() && m_hMyWeapons[i]->GetSlot() == pWeapon->GetSlot() && m_hMyWeapons[i]->GetPosition() == pWeapon->GetPosition() )
-			{
-				// Make sure it matches the subtype
-				if ( m_hMyWeapons[i]->GetSubType() == iSubType )
-				{
-					// Don't use this weapon if the slot is already occupied
-					UTIL_Remove( pWeapon );
-					return NULL;
-				}
-			}
-		}
-	}
-#endif
-
 	if ( pent != NULL && !(pent->IsMarkedForDeletion()) ) 
 	{
 		pent->Touch( this );
@@ -6234,7 +6047,7 @@ ImpulseCommands
 void CBasePlayer::ImpulseCommands( )
 {
 	trace_t	tr;
-		
+	
 	int iImpulse = (int)m_nImpulse;
 	switch (iImpulse)
 	{
@@ -6256,10 +6069,6 @@ void CBasePlayer::ImpulseCommands( )
 			CBaseCombatWeapon *pWeapon;
 
 			pWeapon = GetActiveWeapon();
-#ifdef MAPBASE
-			if (!pWeapon)
-				return;
-#endif
 			
 			if( pWeapon->IsEffectActive( EF_NODRAW ) )
 			{
@@ -6331,6 +6140,16 @@ void CBasePlayer::ImpulseCommands( )
 		m_flNextDecalTime = gpGlobals->curtime + decalfrequency.GetFloat();
 		break;
 
+	case 150: // mobility - toggle speedometer
+		if (cl_show_speedo.GetInt() > 0)
+		{
+			cl_show_speedo.SetValue( "0" );
+		}
+		else 
+		{
+			cl_show_speedo.SetValue( "12" );
+		} 
+		break;
 	default:
 		// check all of the cheat impulse commands now
 		CheatImpulseCommands( iImpulse );
@@ -6350,7 +6169,7 @@ static void CreateJalopy( CBasePlayer *pPlayer )
 	// Cheat to create a jeep in front of the player
 	Vector vecForward;
 	AngleVectors( pPlayer->EyeAngles(), &vecForward );
-	CBaseEntity *pJeep = (CBaseEntity *)CreateEntityByName( "prop_vehicle_jeep" );
+	CBaseEntity *pJeep = (CBaseEntity *)CreateEntityByName( "prop_vehicle_jeep" ); // in CreateJalopy
 	if ( pJeep )
 	{
 		Vector vecOrigin = pPlayer->GetAbsOrigin() + vecForward * 256 + Vector(0,0,64);
@@ -6387,12 +6206,7 @@ static void CreateJeep( CBasePlayer *pPlayer )
 	// Cheat to create a jeep in front of the player
 	Vector vecForward;
 	AngleVectors( pPlayer->EyeAngles(), &vecForward );
-	//Tony; in sp sdk, we have prop_vehicle_hl2buggy; because episode 2 modified the jeep code to turn it into the jalopy instead of the regular buggy
-#if defined ( HL2_EPISODIC )
-	CBaseEntity *pJeep = (CBaseEntity *)CreateEntityByName( "prop_vehicle_hl2buggy" );
-#else
 	CBaseEntity *pJeep = (CBaseEntity *)CreateEntityByName( "prop_vehicle_jeep" );
-#endif
 	if ( pJeep )
 	{
 		Vector vecOrigin = pPlayer->GetAbsOrigin() + vecForward * 256 + Vector(0,0,64);
@@ -6401,11 +6215,7 @@ static void CreateJeep( CBasePlayer *pPlayer )
 		pJeep->SetAbsAngles( vecAngles );
 		pJeep->KeyValue( "model", "models/buggy.mdl" );
 		pJeep->KeyValue( "solid", "6" );
-#if defined ( HL2_EPISODIC )
-		pJeep->KeyValue( "targetname", "hl2buggy" );
-#else
 		pJeep->KeyValue( "targetname", "jeep" );
-#endif
 		pJeep->KeyValue( "vehiclescript", "scripts/vehicles/jeep_test.txt" );
 		DispatchSpawn( pJeep );
 		pJeep->Activate();
@@ -6898,22 +6708,7 @@ bool CBasePlayer::ClientCommand( const CCommand &args )
 			angle.y = atof( args[5] );
 			angle.z = 0.0f;
 
-#ifdef MAPBASE
-			#define SPECGOTO_MAX_VALUE 0xFFFF/2.0f
-
-            // This could crash the game somehow if not checked.. Thanks to Nairda.
-            if (abs(angle.x) <= 360.0f && abs(angle.y) <= 360.0f && abs(origin.x) < SPECGOTO_MAX_VALUE &&
-                abs(origin.y) < SPECGOTO_MAX_VALUE && abs(origin.z) < SPECGOTO_MAX_VALUE)
-            {
-                JumptoPosition(origin, angle);
-            }
-            else
-            {
-                engine->ClientPrintf(edict(), "spec_goto: Out-of-bounds");
-            }
-#else
 			JumptoPosition( origin, angle );
-#endif
 		}
 		
 		return true;
@@ -6938,6 +6733,7 @@ bool CBasePlayer::ClientCommand( const CCommand &args )
 		}
 		return true;
 	}
+	
 
 	return false;
 }
@@ -6976,11 +6772,7 @@ bool CBasePlayer::BumpWeapon( CBaseCombatWeapon *pWeapon )
 	else
 	{
 		// Don't let the player fetch weapons through walls (use MASK_SOLID so that you can't pickup through windows)
-#ifdef MAPBASE
-		if( (pWeapon->FVisible( this, MASK_SOLID ) == false && !(GetFlags() & FL_NOTARGET)) && !HasSpawnFlags(SF_WEAPON_ALWAYS_TOUCHABLE) )
-#else
 		if( pWeapon->FVisible( this, MASK_SOLID ) == false && !(GetFlags() & FL_NOTARGET) )
-#endif
 			return false;
 	}
 	
@@ -6992,11 +6784,7 @@ bool CBasePlayer::BumpWeapon( CBaseCombatWeapon *pWeapon )
 		if( Weapon_EquipAmmoOnly( pWeapon ) )
 		{
 			// Only remove me if I have no ammo left
-#ifdef MAPBASE
-			if ( pWeapon->HasPrimaryAmmo() || pWeapon->HasSecondaryAmmo() )
-#else
 			if ( pWeapon->HasPrimaryAmmo() )
-#endif
 				return false;
 
 			UTIL_Remove( pWeapon );
@@ -7007,56 +6795,10 @@ bool CBasePlayer::BumpWeapon( CBaseCombatWeapon *pWeapon )
 			return false;
 		}
 	}
-#ifdef MAPBASE
-	// --------------------------------------------------------------------------------
-	// If we own a weapon in the same position take the ammo but leave the weapon behind
-	// --------------------------------------------------------------------------------
-	if (!pWeapon->HasSpawnFlags(SF_WEAPON_USED)) // Make sure we're being used and not being bumped
-	{
-		for (int i=0;i<MAX_WEAPONS;i++) 
-		{
-			if (m_hMyWeapons[i] &&
-				pWeapon->GetSlot() == m_hMyWeapons[i]->GetSlot() &&
-				pWeapon->GetPosition() == m_hMyWeapons[i]->GetPosition())
-			{
-				//Weapon_EquipAmmoOnly( pWeapon );
-
-				// I'm too lazy to make my own version of Weapon_EquipAmmoOnly that doesn't check if we already have the weapon first 
-				int	primaryGiven	= (pWeapon->UsesClipsForAmmo1()) ? pWeapon->m_iClip1 : pWeapon->GetPrimaryAmmoCount();
-				int secondaryGiven	= (pWeapon->UsesClipsForAmmo2()) ? pWeapon->m_iClip2 : pWeapon->GetSecondaryAmmoCount();
-
-				int takenPrimary   = GiveAmmo( primaryGiven, pWeapon->m_iPrimaryAmmoType); 
-				int takenSecondary = GiveAmmo( secondaryGiven, pWeapon->m_iSecondaryAmmoType); 
-				
-				if( pWeapon->UsesClipsForAmmo1() )
-				{
-					pWeapon->m_iClip1 -= takenPrimary;
-				}
-				else
-				{
-					pWeapon->SetPrimaryAmmoCount( pWeapon->GetPrimaryAmmoCount() - takenPrimary );
-				}
-
-				if( pWeapon->UsesClipsForAmmo2() )
-				{
-					pWeapon->m_iClip2 -= takenSecondary;
-				}
-				else
-				{
-					pWeapon->SetSecondaryAmmoCount( pWeapon->GetSecondaryAmmoCount() - takenSecondary );
-				}
-
-				return false;
-			}
-		}
-	}
-#endif
 	// -------------------------
 	// Otherwise take the weapon
 	// -------------------------
-#ifndef MAPBASE
 	else 
-#endif
 	{
 		pWeapon->CheckRespawn();
 
@@ -7079,9 +6821,8 @@ bool CBasePlayer::BumpWeapon( CBaseCombatWeapon *pWeapon )
 				UTIL_HudHintText( this, hint.Access() );
 			}
 
-#ifndef MAPBASE // See CBasePlayer::Weapon_Equip.
-			// Always switch to a newly-picked up weapon
-			if ( !PlayerHasMegaPhysCannon() )
+			// Always switch to a newly-picked up weapon (except grenades)
+			if ( !PlayerHasMegaPhysCannon() && !pWeapon->ClassMatches("weapon_frag") )
 			{
 				// If it uses clips, load it full. (this is the first time you've picked up this type of weapon)
 				if ( pWeapon->UsesClipsForAmmo1() )
@@ -7089,9 +6830,16 @@ bool CBasePlayer::BumpWeapon( CBaseCombatWeapon *pWeapon )
 					pWeapon->m_iClip1 = pWeapon->GetMaxClip1();
 				}
 
-				Weapon_Switch( pWeapon );
+				if ( (m_afButtonLast & IN_ATTACK3) ||
+					  (m_afButtonPressed & IN_ATTACK3) )
+				{
+					//Msg( "Not Switching weapon, %d, %d\n", m_afButtonLast, m_afButtonPressed );
+				}
+				else {
+					//Msg( "Switching weapon, %d, %d\n", m_afButtonLast, m_afButtonPressed );
+					Weapon_Switch( pWeapon );
+				}
 			}
-#endif
 #endif
 		}
 		return true;
@@ -7143,43 +6891,6 @@ void CBasePlayer::ShowCrosshair( bool bShow )
 		m_Local.m_iHideHUD |= HIDEHUD_CROSSHAIR;
 	}
 }
-
-//-----------------------------------------------------------------------------
-// Used by vscript to determine if the player is noclipping
-//-----------------------------------------------------------------------------
-bool CBasePlayer::ScriptIsPlayerNoclipping(void)
-{
-	return (GetMoveType() == MOVETYPE_NOCLIP);
-}
-
-#ifdef MAPBASE_VSCRIPT
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-HSCRIPT CBasePlayer::VScriptGetExpresser()
-{
-	HSCRIPT hScript = NULL;
-	CAI_Expresser *pExpresser = GetExpresser();
-	if (pExpresser)
-	{
-		hScript = g_pScriptVM->RegisterInstance( pExpresser );
-	}
-
-	return hScript;
-}
-
-//-----------------------------------------------------------------------------
-//-----------------------------------------------------------------------------
-HSCRIPT CBasePlayer::ScriptGetViewModel( int viewmodelindex )
-{
-	if (viewmodelindex < 0 || viewmodelindex >= MAX_VIEWMODELS)
-	{
-		Warning( "GetViewModel: Invalid index '%i'\n", viewmodelindex );
-		return NULL;
-	}
-
-	return ToHScript( GetViewModel( viewmodelindex ) );
-}
-#endif
 
 //-----------------------------------------------------------------------------
 // Purpose: 
@@ -7808,10 +7519,6 @@ void CBasePlayer::Weapon_DropSlot( int weaponSlot )
 	}
 }
 
-#ifdef MAPBASE
-ConVar player_autoswitch_on_first_pickup("player_autoswitch_on_pickup", "1", FCVAR_NONE, "Determines how the player should autoswitch when picking up a new weapon. 0 = no autoswitch, 1 = always (default), 2 = use unused weighting system");
-#endif
-
 //-----------------------------------------------------------------------------
 // Purpose: Override to add weapon to the hud
 //-----------------------------------------------------------------------------
@@ -7819,26 +7526,7 @@ void CBasePlayer::Weapon_Equip( CBaseCombatWeapon *pWeapon )
 {
 	BaseClass::Weapon_Equip( pWeapon );
 
-#ifdef MAPBASE
-	// BumpWeapon's code appeared to be deprecated; The same operation is already handled here, but with much more code involved.
-	// There's also an unused weighting system which was overridden by that deprecated code. The unused weighting code can be enabled
-	// via player_autoswitch_on_first_pickup.
-	bool bShouldSwitch = false;
-	switch (player_autoswitch_on_first_pickup.GetInt())
-	{
-		// Unused Weighting
-		case 2:
-			bShouldSwitch = g_pGameRules->FShouldSwitchWeapon( this, pWeapon );
-			break;
-
-		// Always (old behavior)
-		case 1:
-			bShouldSwitch = true;
-			break;
-	}
-#else
 	bool bShouldSwitch = g_pGameRules->FShouldSwitchWeapon( this, pWeapon );
-#endif
 
 #ifdef HL2_DLL
 	if ( bShouldSwitch == false && PhysCannonGetHeldEntity( GetActiveWeapon() ) == pWeapon && 
@@ -7849,38 +7537,14 @@ void CBasePlayer::Weapon_Equip( CBaseCombatWeapon *pWeapon )
 #endif//HL2_DLL
 
 	// should we switch to this item?
-	if ( bShouldSwitch )
+	if ((m_afButtonLast & IN_ATTACK3) ||
+		(m_afButtonPressed & IN_ATTACK3)) {
+	}
+	else if (bShouldSwitch)
 	{
 		Weapon_Switch( pWeapon );
 	}
 }
-
-#ifdef MAPBASE
-//-----------------------------------------------------------------------------
-// Purpose: 
-//-----------------------------------------------------------------------------
-Activity CBasePlayer::Weapon_TranslateActivity( Activity baseAct, bool *pRequired )
-{
-	Activity weaponTranslation = BaseClass::Weapon_TranslateActivity( baseAct, pRequired );
-	
-	if ( GetActiveWeapon() && GetActiveWeapon()->IsEffectActive(EF_NODRAW) && baseAct != ACT_ARM )
-	{
-		// Our weapon is holstered. Use the base activity.
-		return baseAct;
-	}
-	if ( GetModelPtr() && (!GetModelPtr()->HaveSequenceForActivity(weaponTranslation) || baseAct == weaponTranslation) )
-	{
-		// This is used so players can fall back to backup activities in the same way NPCs in Mapbase can
-		Activity backupActivity = Weapon_BackupActivity(baseAct, pRequired ? *pRequired : false);
-		if ( baseAct != backupActivity && GetModelPtr()->HaveSequenceForActivity(backupActivity) )
-			return backupActivity;
-
-		return baseAct;
-	}
-
-	return weaponTranslation;
-}
-#endif
 
 
 //=========================================================
@@ -7979,23 +7643,6 @@ void CBasePlayer::PlayWearableAnimsForPlaybackEvent( wearableanimplayback_t iPla
 	}
 }
 #endif // USES_ECON_ITEMS
-
-#ifdef MAPBASE
-bool CBasePlayer::ShouldUseVisibilityCache( CBaseEntity *pEntity )
-{
-	// In CBaseEntity::FVisible(), players are allowed to see through CONTENTS_BLOCKLOS, which is used for
-	// nodraw, block LOS brushes, etc. This is so some code doesn't erronesouly assume the player can't see
-	// an entity (when the player can, in fact, see it) and therefore do something the player is not supposed to see.
-	// 
-	// However, to reduce the number of traces FVisible() runs, CBaseCombatCharacter uses a "visibility cache" shared
-	// by all entities derived from it. The player is normally a part of this visibility cache, so when it runs a trace
-	// through a CONTENTS_BLOCKLOS surface, the visibility cache assumes entities can now see through it and therefore
-	// NPCs to see through the brush which should normally block their LOS.
-	// 
-	// This solution stops the player from using the visibility cache altogether, toggled by a convar.
-	return player_use_visibility_cache.GetBool();
-}
-#endif
 
 //================================================================================
 // TEAM HANDLING
@@ -8318,11 +7965,6 @@ void CRevertSaved::LoadThink( void )
 #define SF_SPEED_MOD_SUPPRESS_SPEED		(1<<5)
 #define SF_SPEED_MOD_SUPPRESS_ATTACK	(1<<6)
 #define SF_SPEED_MOD_SUPPRESS_ZOOM		(1<<7)
-#ifdef MAPBASE
-// Needs to be inverse because suppressing the flashlight is already default behavior
-// and we don't want to break compatibility for existing speedmods
-#define SF_SPEED_MOD_DONT_SUPPRESS_FLASHLIGHT	(1<<8)
-#endif
 
 class CMovementSpeedMod : public CPointEntity
 {
@@ -8330,19 +7972,8 @@ class CMovementSpeedMod : public CPointEntity
 public:
 	void InputSpeedMod(inputdata_t &data);
 
-#ifdef MAPBASE
-	void InputEnable(inputdata_t &data);
-	void InputDisable(inputdata_t &data);
-
-	void InputSetAdditionalButtons(inputdata_t &data);
-#endif
-
 private:
 	int GetDisabledButtonMask( void );
-
-#ifdef MAPBASE
-	int m_iAdditionalButtons;
-#endif
 
 	DECLARE_DATADESC();
 };
@@ -8351,13 +7982,6 @@ LINK_ENTITY_TO_CLASS( player_speedmod, CMovementSpeedMod );
 
 BEGIN_DATADESC( CMovementSpeedMod )
 	DEFINE_INPUTFUNC( FIELD_FLOAT, "ModifySpeed", InputSpeedMod ),
-#ifdef MAPBASE
-	DEFINE_INPUTFUNC( FIELD_VOID, "Enable", InputEnable ),
-	DEFINE_INPUTFUNC( FIELD_VOID, "Disable", InputDisable ),
-
-	DEFINE_KEYFIELD( m_iAdditionalButtons, FIELD_INTEGER, "AdditionalButtons" ),
-	DEFINE_INPUTFUNC( FIELD_INTEGER, "SetAdditionalButtons", InputSetAdditionalButtons ),
-#endif
 END_DATADESC()
 	
 int CMovementSpeedMod::GetDisabledButtonMask( void )
@@ -8394,13 +8018,6 @@ int CMovementSpeedMod::GetDisabledButtonMask( void )
 		nMask |= IN_ZOOM;
 	}
 
-#ifdef MAPBASE
-	if ( m_iAdditionalButtons != 0 )
-	{
-		nMask |= m_iAdditionalButtons;
-	}
-#endif
-
 	return nMask;
 }
 
@@ -8434,10 +8051,6 @@ void CMovementSpeedMod::InputSpeedMod(inputdata_t &data)
 				pPlayer->HideViewModels();
 			}
 
-#ifdef MAPBASE
-			if ( !HasSpawnFlags( SF_SPEED_MOD_DONT_SUPPRESS_FLASHLIGHT ) )
-			{
-#endif
 			// Turn off the flashlight
 			if ( pPlayer->FlashlightIsOn() )
 			{
@@ -8446,9 +8059,6 @@ void CMovementSpeedMod::InputSpeedMod(inputdata_t &data)
 			
 			// Disable the flashlight's further use
 			pPlayer->SetFlashlightEnabled( false );
-#ifdef MAPBASE
-			}
-#endif
 			pPlayer->DisableButtons( GetDisabledButtonMask() );
 
 			// Hide the HUD
@@ -8469,15 +8079,8 @@ void CMovementSpeedMod::InputSpeedMod(inputdata_t &data)
 				}
 			}
 
-#ifdef MAPBASE
-			if ( !HasSpawnFlags( SF_SPEED_MOD_DONT_SUPPRESS_FLASHLIGHT ) )
-			{
-#endif
 			// Allow the flashlight again
 			pPlayer->SetFlashlightEnabled( true );
-#ifdef MAPBASE
-			}
-#endif
 			pPlayer->EnableButtons( GetDisabledButtonMask() );
 
 			// Restore the HUD
@@ -8491,205 +8094,6 @@ void CMovementSpeedMod::InputSpeedMod(inputdata_t &data)
 	}
 }
 
-#ifdef MAPBASE
-void CMovementSpeedMod::InputEnable(inputdata_t &data)
-{
-	CBasePlayer *pPlayer = NULL;
-
-	if ( data.pActivator && data.pActivator->IsPlayer() )
-	{
-		pPlayer = (CBasePlayer *)data.pActivator;
-	}
-	else if ( !g_pGameRules->IsDeathmatch() )
-	{
-		pPlayer = UTIL_GetLocalPlayer();
-	}
-
-	if ( pPlayer )
-	{
-		// Holster weapon immediately, to allow it to cleanup
-		if ( HasSpawnFlags( SF_SPEED_MOD_SUPPRESS_WEAPONS ) )
-		{
-			if ( pPlayer->GetActiveWeapon() )
-			{
-				pPlayer->Weapon_SetLast( pPlayer->GetActiveWeapon() );
-				pPlayer->GetActiveWeapon()->Holster();
-				pPlayer->ClearActiveWeapon();
-			}
-			
-			pPlayer->HideViewModels();
-		}
-
-		// Turn off the flashlight
-		if ( pPlayer->FlashlightIsOn() )
-		{
-			pPlayer->FlashlightTurnOff();
-		}
-		
-		// Disable the flashlight's further use
-		pPlayer->SetFlashlightEnabled( false );
-		pPlayer->DisableButtons( GetDisabledButtonMask() );
-
-		// Hide the HUD
-		if ( HasSpawnFlags( SF_SPEED_MOD_SUPPRESS_HUD ) )
-		{
-			pPlayer->m_Local.m_iHideHUD |= HIDEHUD_ALL;
-		}
-	}
-}
-
-void CMovementSpeedMod::InputDisable(inputdata_t &data)
-{
-	CBasePlayer *pPlayer = NULL;
-
-	if ( data.pActivator && data.pActivator->IsPlayer() )
-	{
-		pPlayer = (CBasePlayer *)data.pActivator;
-	}
-	else if ( !g_pGameRules->IsDeathmatch() )
-	{
-		pPlayer = UTIL_GetLocalPlayer();
-	}
-
-	if ( pPlayer )
-	{
-		// Bring the weapon back
-		if  ( HasSpawnFlags( SF_SPEED_MOD_SUPPRESS_WEAPONS ) && pPlayer->GetActiveWeapon() == NULL )
-		{
-			pPlayer->SetActiveWeapon( pPlayer->Weapon_GetLast() );
-			if ( pPlayer->GetActiveWeapon() )
-			{
-				pPlayer->GetActiveWeapon()->Deploy();
-			}
-		}
-
-		// Allow the flashlight again
-		pPlayer->SetFlashlightEnabled( true );
-		pPlayer->EnableButtons( GetDisabledButtonMask() );
-
-		// Restore the HUD
-		if ( HasSpawnFlags( SF_SPEED_MOD_SUPPRESS_HUD ) )
-		{
-			pPlayer->m_Local.m_iHideHUD &= ~HIDEHUD_ALL;
-		}
-	}
-}
-
-void CMovementSpeedMod::InputSetAdditionalButtons(inputdata_t &data)
-{
-	CBasePlayer *pPlayer = NULL;
-
-	if ( data.pActivator && data.pActivator->IsPlayer() )
-	{
-		pPlayer = (CBasePlayer *)data.pActivator;
-	}
-	else if ( !g_pGameRules->IsDeathmatch() )
-	{
-		pPlayer = UTIL_GetLocalPlayer();
-	}
-
-	bool bAlreadyDisabled = false;
-	if ( pPlayer )
-	{
-		bAlreadyDisabled = (pPlayer->m_afButtonDisabled & GetDisabledButtonMask()) != 0;
-	}
-
-	m_iAdditionalButtons = data.value.Int();
-
-	// If we were already disabling buttons, re-disable them
-	if ( bAlreadyDisabled )
-	{
-		// We should probably do something better than this.
-		pPlayer->m_afButtonForced = GetDisabledButtonMask();
-	}
-}
-#endif
-
-#ifdef MAPBASE
-class CLogicPlayerInfo : public CPointEntity
-{
-	DECLARE_CLASS( CLogicPlayerInfo, CPointEntity );
-public:
-	void InputGetPlayerInfo( inputdata_t &inputdata );
-	void InputGetPlayerByID( inputdata_t &inputdata );
-	void InputGetPlayerByName( inputdata_t &inputdata );
-
-	void GetPlayerInfo( CBasePlayer *pPlayer );
-
-	COutputInt m_OutUserID;
-	COutputString m_OutPlayerName;
-	COutputEHANDLE m_OutPlayerEntity;
-
-	DECLARE_DATADESC();
-};
-
-LINK_ENTITY_TO_CLASS( logic_playerinfo, CLogicPlayerInfo );
-
-BEGIN_DATADESC( CLogicPlayerInfo )
-	DEFINE_INPUTFUNC( FIELD_EHANDLE, "GetPlayerInfo", InputGetPlayerInfo ),
-	DEFINE_INPUTFUNC( FIELD_STRING, "GetPlayerByID", InputGetPlayerByID ),
-	DEFINE_INPUTFUNC( FIELD_STRING, "GetPlayerByName", InputGetPlayerByName ),
-
-	DEFINE_OUTPUT( m_OutUserID, "OutUserID" ),
-	DEFINE_OUTPUT( m_OutPlayerName, "OutPlayerName" ),
-	DEFINE_OUTPUT( m_OutPlayerEntity, "OutPlayerEntity" ),
-END_DATADESC()
-	
-
-void CLogicPlayerInfo::InputGetPlayerInfo( inputdata_t &inputdata )
-{
-	CBasePlayer *pPlayer = ToBasePlayer(inputdata.value.Entity());
-
-	// If there was no entity to begin with, try the local player
-	if (!pPlayer && !inputdata.value.Entity())
-		pPlayer = UTIL_GetLocalPlayer();
-
-	if (pPlayer)
-		GetPlayerInfo( pPlayer );
-}
-
-void CLogicPlayerInfo::InputGetPlayerByID( inputdata_t &inputdata )
-{
-	for (int i = 1; i < gpGlobals->maxClients; i++)
-	{
-		CBasePlayer *pPlayer = UTIL_PlayerByIndex( i );
-		if (pPlayer)
-		{
-			if (Matcher_NamesMatch( inputdata.value.String(), UTIL_VarArgs("%i", pPlayer->GetUserID()) ))
-			{
-				GetPlayerInfo( pPlayer );
-				return;
-			}
-		}
-	}
-}
-
-void CLogicPlayerInfo::InputGetPlayerByName( inputdata_t &inputdata )
-{
-	for (int i = 1; i < gpGlobals->maxClients; i++)
-	{
-		CBasePlayer *pPlayer = UTIL_PlayerByIndex( i );
-		if (pPlayer)
-		{
-			if (Matcher_NamesMatch( inputdata.value.String(), pPlayer->GetPlayerName() ))
-			{
-				GetPlayerInfo( pPlayer );
-				return;
-			}
-		}
-	}
-}
-
-void CLogicPlayerInfo::GetPlayerInfo( CBasePlayer *pPlayer )
-{
-	m_OutUserID.Set( pPlayer->GetUserID(), pPlayer, this );
-
-	m_OutPlayerName.Set( AllocPooledString(pPlayer->GetPlayerName()), pPlayer, this );
-
-	m_OutPlayerEntity.Set( pPlayer, pPlayer, this );
-}
-#endif
-
 
 void SendProxy_CropFlagsToPlayerFlagBitsLength( const SendProp *pProp, const void *pStruct, const void *pVarData, DVariant *pOut, int iElement, int objectID)
 {
@@ -8698,17 +8102,6 @@ void SendProxy_CropFlagsToPlayerFlagBitsLength( const SendProp *pProp, const voi
 
 	pOut->m_Int = ( data & mask );
 }
-
-#ifdef MAPBASE
-// Needs to shift bits since network table only sends the player ones
-void SendProxy_ShiftPlayerSpawnflags( const SendProp *pProp, const void *pStruct, const void *pVarData, DVariant *pOut, int iElement, int objectID )
-{
-	int *pInt = (int *)pVarData;
-
-	pOut->m_Int = (*pInt) >> 16;
-}
-#endif
-
 // -------------------------------------------------------------------------------- //
 // SendTable for CPlayerState.
 // -------------------------------------------------------------------------------- //
@@ -8764,15 +8157,8 @@ void SendProxy_ShiftPlayerSpawnflags( const SendProp *pProp, const void *pStruct
 
 		SendPropInt			( SENDINFO( m_nWaterLevel ), 2, SPROP_UNSIGNED ),
 		SendPropFloat		( SENDINFO( m_flLaggedMovementValue ), 0, SPROP_NOSCALE ),
-
-#ifdef MAPBASE
-		// Transmitted from the server for internal player spawnflags.
-		// See baseplayer_shared.h for more details.
-		SendPropInt			( SENDINFO( m_spawnflags ), 3, SPROP_UNSIGNED, SendProxy_ShiftPlayerSpawnflags ),
-
-		SendPropBool		( SENDINFO( m_bDrawPlayerModelExternally ) ),
-		SendPropBool		( SENDINFO( m_bInTriggerFall ) ),
-#endif
+		SendPropFloat       ( SENDINFO( m_flFragCookStartTime ), 0, SPROP_NOSCALE ),
+		SendPropInt         ( SENDINFO( m_nMeleeState ) )
 
 	END_SEND_TABLE()
 
@@ -8810,12 +8196,6 @@ void SendProxy_ShiftPlayerSpawnflags( const SendProp *pProp, const void *pStruct
 		SendPropEHandle	(SENDINFO(m_hZoomOwner) ),
 		SendPropArray	( SendPropEHandle( SENDINFO_ARRAY( m_hViewModel ) ), m_hViewModel ),
 		SendPropString	(SENDINFO(m_szLastPlaceName) ),
-
-#ifdef MAPBASE // From Alien Swarm SDK
-		// Postprocess data
-		SendPropEHandle		( SENDINFO(m_hPostProcessCtrl) ),
-		SendPropEHandle		( SENDINFO(m_hColorCorrectionCtrl) ),
-#endif
 
 #if defined USES_ECON_ITEMS
 		SendPropUtlVector( SENDINFO_UTLVECTOR( m_hMyWearables ), MAX_WEARABLES_SENT_FROM_SERVER, SendPropEHandle( NULL, 0 ) ),
@@ -9308,18 +8688,6 @@ void CBasePlayer::SetDefaultFOV( int FOV )
 	m_iDefaultFOV = ( FOV == 0 ) ? g_pGameRules->DefaultFOV() : FOV;
 }
 
-#ifdef MAPBASE_VSCRIPT
-void CBasePlayer::ScriptSetFOV(int iFOV, float flRate)
-{
-	m_iFOVStart = GetFOV();
-
-	m_flFOVTime = gpGlobals->curtime;
-	m_iFOV = iFOV;
-
-	m_Local.m_flFOVRate = flRate;
-}
-#endif
-
 //-----------------------------------------------------------------------------
 // Purpose: // static func
 // Input  : set - 
@@ -9511,19 +8879,6 @@ void CBasePlayer::InputSetHUDVisibility( inputdata_t &inputdata )
 	}
 }
 
-#ifdef MAPBASE
-//-----------------------------------------------------------------------------
-// Purpose: 
-// Input  : &inputdata -
-//-----------------------------------------------------------------------------
-void CBasePlayer::InputSetSuppressAttacks( inputdata_t &inputdata )
-{
-	inputdata.value.Bool() ?
-		AddSpawnFlags( SF_PLAYER_SUPPRESS_FIRING ) :
-		RemoveSpawnFlags( SF_PLAYER_SUPPRESS_FIRING );
-}
-#endif
-
 //-----------------------------------------------------------------------------
 // Purpose: Set the fog controller data per player.
 // Input  : &inputdata -
@@ -9531,19 +8886,7 @@ void CBasePlayer::InputSetSuppressAttacks( inputdata_t &inputdata )
 void CBasePlayer::InputSetFogController( inputdata_t &inputdata )
 {
 	// Find the fog controller with the given name.
-#ifdef MAPBASE // From Alien Swarm SDK
-	CFogController *pFogController = NULL;
-	if ( inputdata.value.FieldType() == FIELD_EHANDLE )
-	{
-		pFogController = dynamic_cast<CFogController*>( inputdata.value.Entity().Get() );
-	}
-	else
-	{
-		pFogController = dynamic_cast<CFogController*>( gEntList.FindEntityByName( NULL, inputdata.value.String() ) );
-	}
-#else
 	CFogController *pFogController = dynamic_cast<CFogController*>( gEntList.FindEntityByName( NULL, inputdata.value.String() ) );
-#endif
 	if ( pFogController )
 	{
 		m_Local.m_PlayerFog.m_hCtrl.Set( pFogController );
@@ -9558,70 +8901,6 @@ void CBasePlayer::InitFogController( void )
 	// Setup with the default master controller.
 	m_Local.m_PlayerFog.m_hCtrl = FogSystem()->GetMasterFogController();
 }
-
-#ifdef MAPBASE // From Alien Swarm SDK
-//-----------------------------------------------------------------------------
-//
-//-----------------------------------------------------------------------------
-void CBasePlayer::InitPostProcessController( void )
-{
-	// Setup with the default master controller.
-	m_hPostProcessCtrl = PostProcessSystem()->GetMasterPostProcessController();
-}
-
-//-----------------------------------------------------------------------------
-//
-//-----------------------------------------------------------------------------
-void CBasePlayer::InitColorCorrectionController( void )
-{
-	m_hColorCorrectionCtrl = ColorCorrectionSystem()->GetMasterColorCorrection();
-}
-
-//-----------------------------------------------------------------------------
-//
-//-----------------------------------------------------------------------------
-void CBasePlayer::InputSetPostProcessController( inputdata_t &inputdata )
-{
-	// Find the fog controller with the given name.
-	CPostProcessController *pController = NULL;
-	if ( inputdata.value.FieldType() == FIELD_EHANDLE )
-	{
-		pController = dynamic_cast<CPostProcessController*>( inputdata.value.Entity().Get() );
-	}
-	else
-	{
-		pController = dynamic_cast<CPostProcessController*>( gEntList.FindEntityByName( NULL, inputdata.value.String() ) );
-	}
-
-	if ( pController )
-	{
-		m_hPostProcessCtrl.Set( pController );
-	}
-}
-
-//-----------------------------------------------------------------------------
-//
-//-----------------------------------------------------------------------------
-void CBasePlayer::InputSetColorCorrectionController( inputdata_t &inputdata )
-{
-	// Find the fog controller with the given name.
-	CColorCorrection *pController = NULL;
-	if ( inputdata.value.FieldType() == FIELD_EHANDLE )
-	{
-		pController = dynamic_cast<CColorCorrection*>( inputdata.value.Entity().Get() );
-	}
-	else
-	{
-		pController = dynamic_cast<CColorCorrection*>( gEntList.FindEntityByName( NULL, inputdata.value.String() ) );
-	}
-
-	if ( pController )
-	{
-		m_hColorCorrectionCtrl.Set( pController );
-	}
-
-}
-#endif
 
 //-----------------------------------------------------------------------------
 // Purpose: 
@@ -9760,14 +9039,6 @@ bool CBasePlayer::HandleVoteCommands( const CCommand &args )
 //-----------------------------------------------------------------------------
 const char *CBasePlayer::GetNetworkIDString()
 {
-	//Tony; bots don't have network id's, and this can potentially crash, especially with plugins creating them.
-	if (IsBot())
-		return "__BOT__";
-
-	//Tony; if networkidstring is null for any reason, the strncpy will crash!
-	if (!m_szNetworkIDString)
-		return "NULLID";
-
 	const char *pStr = engine->GetPlayerNetworkIDString( edict() );
 	Q_strncpy( m_szNetworkIDString, pStr ? pStr : "", sizeof(m_szNetworkIDString) );
 	return m_szNetworkIDString; 
@@ -10294,70 +9565,3 @@ uint64 CBasePlayer::GetSteamIDAsUInt64( void )
 	return 0;
 }
 #endif // NO_STEAM
-
-#ifdef MAPBASE // From Alien Swarm SDK
-//--------------------------------------------------------------------------------------------------------
-void CBasePlayer::UpdateFXVolume( void )
-{
-	CFogController *pFogController = NULL;
-	CPostProcessController *pPostProcessController = NULL;
-	CColorCorrection* pColorCorrectionEnt = NULL;
-
-	Vector eyePos;
-	CBaseEntity *pViewEntity = GetViewEntity();
-	if ( pViewEntity )
-	{
-		eyePos = pViewEntity->GetAbsOrigin();
-	}
-	else
-	{
-		eyePos = EyePosition();
-	}
-
-	CFogVolume *pFogVolume = CFogVolume::FindFogVolumeForPosition( eyePos );
-	if ( pFogVolume )
-	{
-		pFogController = pFogVolume->GetFogController();
-		pPostProcessController = pFogVolume->GetPostProcessController();
-		pColorCorrectionEnt = pFogVolume->GetColorCorrectionController();
-
-		if ( !pFogController )
-		{
-			pFogController = FogSystem()->GetMasterFogController();
-		}
-
-		if ( !pPostProcessController )
-		{
-			pPostProcessController = PostProcessSystem()->GetMasterPostProcessController();
-		}
-
-		if ( !pColorCorrectionEnt )
-		{
-			pColorCorrectionEnt = ColorCorrectionSystem()->GetMasterColorCorrection();
-		}
-	}
-	else if ( TheFogVolumes.Count() > 0 )
-	{
-		// If we're not in a fog volume, clear our fog volume, if the map has any.
-		// This will get us back to using the master fog controller.
-		pFogController = FogSystem()->GetMasterFogController();
-		pPostProcessController = PostProcessSystem()->GetMasterPostProcessController();
-		pColorCorrectionEnt = ColorCorrectionSystem()->GetMasterColorCorrection();
-	}
-
-	if ( pFogController && m_Local.m_PlayerFog.m_hCtrl.Get() != pFogController )
-	{
-		m_Local.m_PlayerFog.m_hCtrl.Set( pFogController );
-	}
-
-	if ( pPostProcessController )
-	{
-		m_hPostProcessCtrl.Set( pPostProcessController );
-	}
-
-	if ( pColorCorrectionEnt )
-	{
-		m_hColorCorrectionCtrl.Set( pColorCorrectionEnt );
-	}
-}
-#endif

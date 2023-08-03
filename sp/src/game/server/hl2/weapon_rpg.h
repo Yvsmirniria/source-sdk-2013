@@ -17,10 +17,15 @@
 #include "npcevent.h"
 #include "beam_shared.h"
 
+#include "vehicle_base.h"
+
+#include "weapon_egar.h"
+
 class CWeaponRPG;
 class CLaserDot;
 class RocketTrail;
  
+
 //###########################################################################
 //	>> CMissile		(missile launcher class is below this one!)
 //###########################################################################
@@ -84,6 +89,7 @@ protected:
 	float					m_flAugerTime;		// Amount of time to auger before blowing up anyway
 	float					m_flMarkDeadTime;
 	float					m_flDamage;
+	float                   m_flRocketSpeed;
 
 	struct CustomDetonator_t
 	{
@@ -97,7 +103,7 @@ protected:
 private:
 	float					m_flGracePeriodEndsAt;
 	bool					m_bCreateDangerSounds;
-
+	
 	DECLARE_DATADESC();
 };
 
@@ -165,9 +171,58 @@ private:
 //-----------------------------------------------------------------------------
 CAPCMissile *FindAPCMissileInCone( const Vector &vecOrigin, const Vector &vecDirection, float flAngle );
 
-#ifdef MAPBASE
-extern ConVar weapon_rpg_fire_rate;
-#endif
+
+//-----------------------------------------------------------------------------
+// Special homing missile class for airboat/EGAR rockets
+//-----------------------------------------------------------------------------
+class CHomingMissile : public CMissile
+{
+
+	DECLARE_CLASS( CMissile, CMissile );
+	DECLARE_DATADESC();
+
+public:
+	static CHomingMissile *Create( 
+		const Vector &vecOrigin, 
+		const QAngle &vecAngles, 
+		CBaseEntity *pentOwner,
+		CBaseEntity *pentTarget, 
+		int nIndex);
+
+	void	SeekThink( void );
+	void    SetTarget( CBaseEntity* pentTarget );
+	void    SetIndex( int nIndex );
+	void    Explode();
+	void    MissileTouch( CBaseEntity* pOther );
+	void    SetOwnerEntity( CBaseEntity* pentOwner );
+	int		OnTakeDamage_Alive( const CTakeDamageInfo &info );
+	void    SetSpawnTime( float flSpawnTime )
+	{
+		m_flSpawnTime = flSpawnTime;
+	}
+
+protected: 
+	float m_flRocketSpeed = 2200;
+
+private:
+	CHandle<CBaseEntity> m_hOwner;
+	EHANDLE m_hTarget;
+	Vector m_vecTargetPos;
+	int m_nIndex; // Index into airboat target array
+	// When this missile explodes, notify the airboat
+	// to clear the target, so the HUD will stop
+	// painting it
+
+	float m_flHomingSpeed;
+
+	float m_flSpawnTime; // We want to explode after a while,
+	                     // And ignore damage for a short period
+	                     // after launching
+
+};
+
+
+
 
 //-----------------------------------------------------------------------------
 // RPG
@@ -184,12 +239,8 @@ public:
 
 	void	Precache( void );
 
-	void	PrimaryAttack( void );
-#ifdef MAPBASE
-	virtual float GetFireRate( void ) { return weapon_rpg_fire_rate.GetFloat(); };
-#else
+	virtual void	PrimaryAttack( void );
 	virtual float GetFireRate( void ) { return 1; };
-#endif
 	void	ItemPostFrame( void );
 
 	void	Activate( void );
@@ -203,10 +254,6 @@ public:
 
 	virtual void Drop( const Vector &vecVelocity );
 
-#ifdef MAPBASE
-	bool	SupportsBackupActivity(Activity activity);
-#endif
-
 	int		GetMinBurst() { return 1; }
 	int		GetMaxBurst() { return 1; }
 	float	GetMinRestTime() { return 4.0; }
@@ -216,9 +263,6 @@ public:
 	int		WeaponRangeAttack1Condition( float flDot, float flDist );
 
 	void	Operator_HandleAnimEvent( animevent_t *pEvent, CBaseCombatCharacter *pOperator );
-#ifdef MAPBASE
-	void	Operator_ForceNPCFire( CBaseCombatCharacter  *pOperator, bool bSecondary );
-#endif
 	void	StartGuiding( void );
 	void	StopGuiding( void );
 	void	ToggleGuiding( void );
@@ -268,3 +312,7 @@ protected:
 };
 
 #endif // WEAPON_RPG_H
+
+
+
+

@@ -52,6 +52,7 @@ public:
 	virtual int GetPrimaryAmmoCount() const { return -1; }
 	virtual int GetPrimaryAmmoClip() const  { return -1; }
 	virtual bool PrimaryAmmoUsesClips() const { return false; }
+	virtual int GetCurrentSpeed() const;
 #endif
 
 	virtual bool IsPredicted() const { return false; }
@@ -119,6 +120,8 @@ protected:
 	float						m_flFOV;
 
 	Vector						m_vecGunCrosshair;
+	Vector                      m_vecPhysVelocity;
+	float                       m_flVelocity;
 	CInterpolatedVar<Vector>	m_iv_vecGunCrosshair;
 	Vector						m_vecEyeExitEndpoint;
 	bool						m_bHasGun;

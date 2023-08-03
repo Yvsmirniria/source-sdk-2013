@@ -4,13 +4,6 @@
 //
 //=============================================================================//
 
-#ifdef MAPBASE
-
-// Redirect to HL2:DM's stunstick.
-// It has NPC support now.
-#include "hl2mp/weapon_stunstick.h"
-
-#else
 #ifndef WEAPON_STUNSTICK_H
 #define WEAPON_STUNSTICK_H
 #ifdef _WIN32
@@ -20,12 +13,7 @@
 #include "basebludgeonweapon.h"
 
 #define	STUNSTICK_RANGE		75.0f
-#ifdef MAPBASE
-// MP refire
-#define STUNSTICK_REFIRE	0.8f
-#else
 #define	STUNSTICK_REFIRE	0.6f
-#endif
 
 class CWeaponStunStick : public CBaseHLBludgeonWeapon
 {
@@ -68,4 +56,3 @@ private:
 };
 
 #endif // WEAPON_STUNSTICK_H
-#endif

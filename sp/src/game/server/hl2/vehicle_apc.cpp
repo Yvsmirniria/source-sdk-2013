@@ -54,6 +54,8 @@ extern short g_sModelIndexFireball; // Echh...
 
 
 ConVar sk_apc_health( "sk_apc_health", "750" );
+ConVar apc_ejections( "apc_ejections", "1" );
+ConVar apc_eject_speed( "apc_eject_speed", "2500" );
 
 
 #define APC_MAX_CHUNKS	3
@@ -438,6 +440,36 @@ void CPropAPC::Event_Killed( const CTakeDamageInfo &info )
 			100, 0 );
 	}
 
+	if (apc_ejections.GetBool())
+	{
+		// Eject a living combine soldier for fun
+		CAI_BaseNPC	*pGoose = (CAI_BaseNPC*)CreateEntityByName( "npc_metropolice" );
+
+		if (pGoose)
+		{
+			// directly above the APC and shooting straight up
+			pGoose->SetAbsOrigin( GetAbsOrigin() + Vector( 0, 0, 80 ) );
+			
+			QAngle angles = GetAbsAngles();
+			angles.x = 0.0;
+			angles.z = 0.0;
+			pGoose->SetAbsAngles( angles );
+			pGoose->SetAbsVelocity( Vector( 40 * sin(angles[YAW]), 
+				                            40 * cos(angles[YAW]), 
+											apc_eject_speed.GetFloat() ) );
+
+			pGoose->m_spawnEquipment = MAKE_STRING( "weapon_smg1" );
+
+			pGoose->Spawn();
+
+		} else 
+		{
+			Warning( "Couldn't create APC pilot!\n" );
+			return;
+		}
+	}
+
+
 	// TODO: make the gibs spawn in sync with the delayed explosions
 	int nGibs = random->RandomInt( 1, 4 );
 	for ( int i = 0; i < nGibs; i++)
@@ -561,15 +593,9 @@ int CPropAPC::OnTakeDamage( const CTakeDamageInfo &info )
 		m_iHealth -= dmgInfo.GetDamage();
 		if ( m_iHealth <= 0 )
 		{
-#ifdef MAPBASE_VSCRIPT
-			// False = Cheat death
-			if (ScriptDeathHook( const_cast<CTakeDamageInfo*>(&info) ) != false)
-#endif
-			{
-				m_iHealth = 0;
-				Event_Killed( dmgInfo );
-				return 0;
-			}
+			m_iHealth = 0;
+			Event_Killed( dmgInfo );
+			return 0;
 		}
 
 		// Chain

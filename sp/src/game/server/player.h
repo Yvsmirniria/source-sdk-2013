@@ -18,6 +18,9 @@
 #include "hintsystem.h"
 #include "SoundEmitterSystem/isoundemittersystembase.h"
 #include "util_shared.h"
+#include "player_mobility_defs.h"
+#include "grenade_frag.h"
+
 
 #if defined USES_ECON_ITEMS
 #include "game_item_schema.h"
@@ -87,10 +90,6 @@ class CFuncLadder;
 class CNavArea;
 class CHintSystem;
 class CAI_Expresser;
-
-#ifdef MAPBASE // From Alien Swarm SDK
-class CTonemapTrigger;
-#endif
 
 #if defined USES_ECON_ITEMS
 class CEconWearable;
@@ -171,7 +170,6 @@ enum
 	VPHYS_NOCLIP,
 };
 
-
 enum PlayerConnectedState
 {
 	PlayerConnected,
@@ -237,6 +235,7 @@ private:
 	CBasePlayer *m_pParent; 
 };
 
+
 class CBasePlayer : public CBaseCombatCharacter
 {
 public:
@@ -248,8 +247,6 @@ protected:
 public:
 	DECLARE_DATADESC();
 	DECLARE_SERVERCLASS();
-	// script description
-	DECLARE_ENT_SCRIPTDESC();
 	
 	CBasePlayer();
 	~CBasePlayer();
@@ -269,10 +266,6 @@ public:
 	CBaseViewModel			*GetViewModel( int viewmodelindex = 0, bool bObserverOK = true );
 	void					HideViewModels( void );
 	void					DestroyViewModels( void );
-
-#ifdef MAPBASE
-	virtual void			CreateHandModel( int viewmodelindex = 1, int iOtherVm = 0 );
-#endif
 
 	CPlayerState			*PlayerData( void ) { return &pl; }
 	
@@ -297,11 +290,6 @@ public:
 	virtual void			Activate( void );
 	virtual void			SharedSpawn(); // Shared between client and server.
 	virtual void			ForceRespawn( void );
-
-#ifdef MAPBASE
-	// For the logic_playerproxy output
-	virtual void			SpawnedAtPoint( CBaseEntity *pSpawnPoint ) {}
-#endif
 
 	virtual void			InitialSpawn( void );
 	virtual void			InitHUD( void ) {}
@@ -397,25 +385,6 @@ public:
 	void					ShowViewModel( bool bShow );
 	void					ShowCrosshair( bool bShow );
 
-	bool					ScriptIsPlayerNoclipping(void);
-
-#ifdef MAPBASE_VSCRIPT
-	HSCRIPT					VScriptGetExpresser();
-
-	int						GetButtons() { return m_nButtons; }
-	int						GetButtonPressed() { return m_afButtonPressed; }
-	int						GetButtonReleased() { return m_afButtonReleased; }
-	int						GetButtonLast() { return m_afButtonLast; }
-	int						GetButtonDisabled() { return m_afButtonDisabled; }
-	int						GetButtonForced() { return m_afButtonForced; }
-
-	const Vector&			ScriptGetEyeForward() { static Vector vecForward; EyeVectors( &vecForward, NULL, NULL ); return vecForward; }
-	const Vector&			ScriptGetEyeRight() { static Vector vecRight; EyeVectors( NULL, &vecRight, NULL ); return vecRight; }
-	const Vector&			ScriptGetEyeUp() { static Vector vecUp; EyeVectors( NULL, NULL, &vecUp ); return vecUp; }
-
-	HSCRIPT					ScriptGetViewModel( int viewmodelindex );
-#endif
-
 	// View model prediction setup
 	void					CalcView( Vector &eyeOrigin, QAngle &eyeAngles, float &zNear, float &zFar, float &fov );
 
@@ -447,11 +416,9 @@ public:
 	virtual void			Weapon_SetLast( CBaseCombatWeapon *pWeapon );
 	virtual bool			Weapon_ShouldSetLast( CBaseCombatWeapon *pOldWeapon, CBaseCombatWeapon *pNewWeapon ) { return true; }
 	virtual bool			Weapon_ShouldSelectItem( CBaseCombatWeapon *pWeapon );
+	virtual bool            Weapon_Lower( void ) { return true; }
 	void					Weapon_DropSlot( int weaponSlot );
 	CBaseCombatWeapon		*Weapon_GetLast( void ) { return m_hLastWeapon.Get(); }
-#ifdef MAPBASE
-	virtual Activity		Weapon_TranslateActivity( Activity baseAct, bool *pRequired = NULL );
-#endif
 
 	virtual void			OnMyWeaponFired( CBaseCombatWeapon *weapon );	// call this when this player fires a weapon to allow other systems to react
 	virtual float			GetTimeSinceWeaponFired( void ) const;			// returns the time, in seconds, since this player fired a weapon
@@ -479,6 +446,16 @@ public:
 	void					UpdatePlayerSound ( void );
 	virtual void			UpdateStepSound( surfacedata_t *psurface, const Vector &vecOrigin, const Vector &vecVelocity );
 	virtual void			PlayStepSound( Vector &vecOrigin, surfacedata_t *psurface, float fvol, bool force );
+	// Mobility sound functions
+	virtual void            PlayAirjumpSound( Vector &vecOrigin );
+	virtual void            PlayPowerSlideSound( Vector &vecOrigin );
+	virtual void            StopPowerSlideSound( void );
+	virtual void            PlayWallRunSound( Vector &vecOrigin );
+	virtual void            StopWallRunSound( void );
+
+	virtual void            ChuckGrenade( void ); // for throwing a grenade now no matter what gun we're holding
+	virtual void            CheckMelee( void ); // for quick melee attacks
+
 	virtual const char	   *GetOverrideStepSound( const char *pszBaseStepSoundName ) { return pszBaseStepSoundName; }
 	virtual void			GetStepSoundVelocities( float *velwalk, float *velrun );
 	virtual void			SetStepSoundTime( stepsoundtimes_t iStepSoundTime, bool bWalking );
@@ -586,9 +563,8 @@ public:
 	virtual void			PickupObject( CBaseEntity *pObject, bool bLimitMassAndSize = true ) {}
 	virtual void			ForceDropOfCarriedPhysObjects( CBaseEntity *pOnlyIfHoldindThis = NULL ) {}
 	virtual float			GetHeldObjectMass( IPhysicsObject *pHeldObject );
-	virtual CBaseEntity		*GetHeldObject( void );
 
-	virtual void			CheckSuitUpdate();
+	void					CheckSuitUpdate();
 	void					SetSuitUpdate(const char *name, int fgroup, int iNoRepeat);
 	virtual void			UpdateGeigerCounter( void );
 	void					CheckTimeBasedDamage( void );
@@ -598,10 +574,6 @@ public:
 	virtual Vector			GetAutoaimVector( float flScale );
 	virtual Vector			GetAutoaimVector( float flScale, float flMaxDist );
 	virtual void			GetAutoaimVector( autoaim_params_t &params );
-#ifdef MAPBASE_VSCRIPT
-	Vector					ScriptGetAutoaimVector( float flScale ) { return GetAutoaimVector( flScale ); }
-	Vector					ScriptGetAutoaimVectorCustomMaxDist( float flScale, float flMaxDist ) { return GetAutoaimVector( flScale, flMaxDist ); }
-#endif
 
 	float					GetAutoaimScore( const Vector &eyePosition, const Vector &viewDir, const Vector &vecTarget, CBaseEntity *pTarget, float fScale, CBaseCombatWeapon *pActiveWeapon );
 	QAngle					AutoaimDeflection( Vector &vecSrc, autoaim_params_t &params );
@@ -620,6 +592,37 @@ public:
 	bool					IsUserCmdDataValid( CUserCmd *pCmd );
 
 	void					AvoidPhysicsProps( CUserCmd *pCmd );
+
+	// Mobility mod
+	bool m_bLessClip = false;
+	bool m_bIsPowerSliding = false;
+	WallRunState m_nWallRunState = WALLRUN_NOT;
+	Vector m_vecWallNorm;
+	float m_flAutoViewTime; // if wallrunning, when should start adjusting the view 
+	bool m_bWallRunBumpAhead; // are we moving out from the wall anticipating a bump?
+	Vector m_vecLastWallRunPos; // Position when we ended the last wallrun
+	AirJumpState m_nAirJumpState; // Is the airjump ready, in progress, or done?
+	// Is the player allowed to jump while in the air
+	bool                CanAirJump(void)
+	{
+		return IsSuitEquipped() &&
+			m_nAirJumpState != AIRJUMP_DONE &&
+			m_nAirJumpState != AIRJUMP_NORM_JUMPING;
+	}
+	HSOUNDSCRIPTHANDLE m_hssPowerSlideSound;
+	HSOUNDSCRIPTHANDLE m_hssWallRunSound;
+
+	float m_flCoyoteTime; // When a wallrun ends or we go over a cliff, allow a window when
+	                      // jumping counts as a normal jump off the ground/wall, even though
+	                      // technically airborn. Compensating for player's perception/reflexes.
+	                      // This is the absolute time until which we allow the special jump
+
+	float m_flNextWallRunTime; // Some times we want to have a little cooldown for wallrunning - 
+	                           // mostly if a wallrun ended because it was above a doorway
+
+	CNetworkVar( float, m_flFragCookStartTime ); // Time the player started cooking a frag (used to reduce 
+	                             // the timer when chucking)
+	CNetworkVar( int ,  m_nMeleeState );
 
 	// Run a user command. The default implementation calls ::PlayerRunCommand. In TF, this controls a vehicle if
 	// the player is in one.
@@ -660,12 +663,6 @@ public:
 	virtual void			EquipWearable( CEconWearable *pItem );
 	virtual void			RemoveWearable( CEconWearable *pItem );
 	void					PlayWearableAnimsForPlaybackEvent( wearableanimplayback_t iPlayback );
-#endif
-
-#ifdef MAPBASE
-	bool					ShouldUseVisibilityCache( CBaseEntity *pEntity );
-
-	void					UpdateFXVolume( void );		// From Alien Swarm SDK
 #endif
 
 public:
@@ -709,7 +706,7 @@ public:
 	bool	IsConnected() const		{ return m_iConnected != PlayerDisconnected; }
 	bool	IsDisconnecting() const	{ return m_iConnected == PlayerDisconnecting; }
 	bool	IsSuitEquipped() const	{ return m_Local.m_bWearingSuit; }
-	virtual int		ArmorValue() const		{ return m_ArmorValue; }
+	int		ArmorValue() const		{ return m_ArmorValue; }
 	bool	HUDNeedsRestart() const { return m_fInitHUD; }
 	float	MaxSpeed() const		{ return m_flMaxspeed; }
 	Activity GetActivity( ) const	{ return m_Activity; }
@@ -722,6 +719,12 @@ public:
 
 	int		GetObserverMode() const	{ return m_iObserverMode; }
 	CBaseEntity *GetObserverTarget() const	{ return m_hObserverTarget; }
+
+	float   GetLavaTime() { return m_flLavaTime; }
+	void    SetLavaTime( float flNewTime ) { m_flLavaTime = flNewTime; }
+
+	Vector  GetEscapeVel() { return m_vecCornerEscapeVel; }
+	void    SetEscapeVel( Vector vecNewVel ) { m_vecCornerEscapeVel = vecNewVel; }
 
 	// Round gamerules
 	virtual bool	IsReadyToPlay( void ) { return true; }
@@ -787,10 +790,6 @@ public:
 	int		GetDefaultFOV( void ) const;										// Default FOV if not specified otherwise
 	int		GetFOVForNetworking( void );										// Get the current FOV used for network computations
 	bool	SetFOV( CBaseEntity *pRequester, int FOV, float zoomRate = 0.0f, int iZoomStart = 0 );	// Alters the base FOV of the player (must have a valid requester)
-#ifdef MAPBASE_VSCRIPT
-	void	ScriptSetFOV(int iFOV, float flSpeed);								// Overrides player FOV, ignores zoom owner
-	HSCRIPT ScriptGetFOVOwner() { return ToHScript(m_hZoomOwner); }
-#endif
 	void	SetDefaultFOV( int FOV );											// Sets the base FOV if nothing else is affecting it by zooming
 	CBaseEntity *GetFOVOwner( void ) { return m_hZoomOwner; }
 	float	GetFOVDistanceAdjustFactor(); // shared between client and server
@@ -817,15 +816,14 @@ public:
 	void	InputSetHealth( inputdata_t &inputdata );
 	void	InputSetHUDVisibility( inputdata_t &inputdata );
 	void	InputHandleMapEvent( inputdata_t &inputdata );
-#ifdef MAPBASE
-	void	InputSetSuppressAttacks( inputdata_t &inputdata );
-#endif
 
 	surfacedata_t *GetSurfaceData( void ) { return m_pSurfaceData; }
 	void SetLadderNormal( Vector vecLadderNormal ) { m_vecLadderNormal = vecLadderNormal; }
 
 	// Here so that derived classes can use the expresser
 	virtual CAI_Expresser *GetExpresser() { return NULL; };
+
+	virtual void DeriveMaxSpeed( void ) {};
 
 #if !defined(NO_STEAM)
 	//----------------------------
@@ -892,19 +890,6 @@ public:
 	void InitFogController( void );
 	void InputSetFogController( inputdata_t &inputdata );
 
-#ifdef MAPBASE // From Alien Swarm SDK
-	void OnTonemapTriggerStartTouch( CTonemapTrigger *pTonemapTrigger );
-	void OnTonemapTriggerEndTouch( CTonemapTrigger *pTonemapTrigger );
-	CUtlVector< CHandle< CTonemapTrigger > > m_hTriggerTonemapList;
-
-	CNetworkHandle( CPostProcessController, m_hPostProcessCtrl );	// active postprocessing controller
-	CNetworkHandle( CColorCorrection, m_hColorCorrectionCtrl );		// active FXVolume color correction
-	void InitPostProcessController( void );
-	void InputSetPostProcessController( inputdata_t &inputdata );
-	void InitColorCorrectionController( void );
-	void InputSetColorCorrectionController( inputdata_t &inputdata );
-#endif
-
 	// Used by env_soundscape_triggerable to manage when the player is touching multiple
 	// soundscape triggers simultaneously.
 	// The one at the HEAD of the list is always the current soundscape for the player.
@@ -934,6 +919,7 @@ public:
 	int						m_afButtonLast;
 	int						m_afButtonDisabled;	// A mask of input flags that are cleared automatically
 	int						m_afButtonForced;	// These are forced onto the player's inputs
+	int                     m_afButtonDebounced; // MobMod: ignore these buttons until released
 
 	CNetworkVar( bool, m_fOnTarget );		//Is the crosshair on a target?
 
@@ -957,10 +943,6 @@ public:
 #if defined USES_ECON_ITEMS
 	CEconWearable			*GetWearable( int i ) { return m_hMyWearables[i]; }
 	int						GetNumWearables( void ) { return m_hMyWearables.Count(); }
-#endif
-
-#ifdef MAPBASE
-	CNetworkVar( bool, m_bInTriggerFall );
 #endif
 
 private:
@@ -1048,13 +1030,6 @@ protected:
 	float					m_fReplayEnd;		// time to stop replay mode
 	int						m_iReplayEntity;	// follow this entity in replay
 
-#ifdef MAPBASE // From Alien Swarm SDK
-	// For now, Mapbase uses Tony Sergi's Source 2007 tonemap fixes.
-	// Alien Swarm SDK tonemap controller code copies the parameters instead.
-	virtual void UpdateTonemapController( void );
-	//CNetworkHandle( CBaseEntity, m_hTonemapController );
-#endif
-
 private:
 	void HandleFuncTrain();
 
@@ -1083,6 +1058,11 @@ private:
 	float					m_flSwimTime;		// how long player has been underwater
 	float					m_flDuckTime;		// how long we've been ducking
 	float					m_flDuckJumpTime;	
+	float                   m_flLavaTime; // Time of last lava dmg
+	float                   m_flShoveTime; // Time of last shove
+
+	Vector                  m_vecCornerEscapeVel; // Replace wishdir to escape
+	                                             // if we are stuck in a small corner 
 
 	float					m_flSuitUpdate;					// when to play next suit update
 	int						m_rgSuitPlayList[CSUITPLAYLIST];// next sentencenum to play for suit update
@@ -1170,11 +1150,6 @@ public:
 	float					m_flSideMove;
 	int						m_nNumCrateHudHints;
 
-#ifdef MAPBASE
-	bool					GetDrawPlayerModelExternally( void ) { return m_bDrawPlayerModelExternally; }
-	void					SetDrawPlayerModelExternally( bool bToggle ) { m_bDrawPlayerModelExternally.Set( bToggle ); }
-#endif
-
 private:
 
 	// Used in test code to teleport the player to random locations in the map.
@@ -1212,10 +1187,6 @@ private:
 
 	// Player name
 	char					m_szNetname[MAX_PLAYER_NAME_LENGTH];
-
-#ifdef MAPBASE
-	CNetworkVar( bool, m_bDrawPlayerModelExternally );
-#endif
 
 protected:
 	// HACK FOR TF2 Prediction
@@ -1299,23 +1270,6 @@ private:
 
 public:
 	virtual unsigned int PlayerSolidMask( bool brushOnly = false ) const;	// returns the solid mask for the given player, so bots can have a more-restrictive set
-
-private:
-	//
-	//Tony; new tonemap controller changes, specifically for multiplayer.
-	//
-	void	ClearTonemapParams();		//Tony; we need to clear our tonemap params every time we spawn to -1, if we trigger an input, the values will be set again.
-public:
-	void	InputSetTonemapScale( inputdata_t &inputdata );			//Set m_Local.
-//	void	InputBlendTonemapScale( inputdata_t &inputdata );		//TODO; this should be calculated on the client, if we use it; perhaps an entity message would suffice? .. hmm..
-	void	InputSetTonemapRate( inputdata_t &inputdata );
-	void	InputSetAutoExposureMin( inputdata_t &inputdata );
-	void	InputSetAutoExposureMax( inputdata_t &inputdata );
-	void	InputSetBloomScale( inputdata_t &inputdata );
-
-	//Tony; restore defaults (set min/max to -1.0 so nothing gets overridden)
-	void	InputUseDefaultAutoExposure( inputdata_t &inputdata );
-	void	InputUseDefaultBloomScale( inputdata_t &inputdata );
 
 };
 

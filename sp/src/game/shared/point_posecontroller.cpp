@@ -326,13 +326,6 @@ void CPoseController::InputGetFMod( inputdata_t &inputdata )
 			m_fFModAmplitude.Get() );
 }
 
-#ifdef MAPBASE
-void CPoseController::InputSetTarget( inputdata_t &inputdata )
-{
-	SetPropName( inputdata.value.String() );
-}
-#endif
-
 
 #else //#ifndef CLIENT_DLL
 //-----------------------------------------------------------------------------

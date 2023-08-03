@@ -68,9 +68,6 @@ public:
 private:
 	
 	void	HostSpeakSentence( const char *pSentence, SentencePriority_t nSoundPriority, SentenceCriteria_t nCriteria );
-#ifdef MAPBASE
-	void	HostSpeakSentence( const char *pSentence, const char *modifiers, SentencePriority_t nSoundPriority, SentenceCriteria_t nCriteria );
-#endif
 
 	int		TranslateSchedule( int scheduleType );
 	

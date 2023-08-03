@@ -58,9 +58,6 @@ END_DATADESC()
 #define SF_FADE_MODULATE		0x0002		// Modulate, don't blend
 #define SF_FADE_ONLYONE			0x0004
 #define SF_FADE_STAYOUT			0x0008
-#ifdef MAPBASE
-#define SF_FADE_DONT_PURGE		0x0016
-#endif
 
 //-----------------------------------------------------------------------------
 // Purpose: 
@@ -96,13 +93,6 @@ void CEnvFade::InputFade( inputdata_t &inputdata )
 		fadeFlags |= FFADE_STAYOUT;
 	}
 
-#ifdef MAPBASE
-	if ( !HasSpawnFlags(SF_FADE_DONT_PURGE) )
-	{
-		fadeFlags |= FFADE_PURGE;
-	}
-#endif
-
 	if ( m_spawnflags & SF_FADE_ONLYONE )
 	{
 		if ( inputdata.pActivator && inputdata.pActivator->IsNetClient() )
@@ -112,11 +102,7 @@ void CEnvFade::InputFade( inputdata_t &inputdata )
 	}
 	else
 	{
-#ifdef MAPBASE
-		UTIL_ScreenFadeAll( m_clrRender, Duration(), HoldTime(), fadeFlags );
-#else
 		UTIL_ScreenFadeAll( m_clrRender, Duration(), HoldTime(), fadeFlags|FFADE_PURGE );
-#endif
 	}
 
 	m_OnBeginFade.FireOutput( inputdata.pActivator, this );

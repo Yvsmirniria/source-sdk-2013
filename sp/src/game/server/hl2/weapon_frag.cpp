@@ -1,20 +1,6 @@
-//========= Copyright Valve Corporation, All rights reserved. ============//
-//
-// Purpose: 
-//
-//=============================================================================//
-
 #include "cbase.h"
-#include "basehlcombatweapon.h"
-#include "player.h"
-#include "gamerules.h"
-#include "grenade_frag.h"
-#include "npcevent.h"
-#include "engine/IEngineSound.h"
-#include "items.h"
-#include "in_buttons.h"
-#include "soundent.h"
-#include "gamestats.h"
+#include "weapon_frag.h"
+#include "basegrenade_shared.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -27,52 +13,6 @@
 
 #define GRENADE_RADIUS	4.0f // inches
 
-//-----------------------------------------------------------------------------
-// Fragmentation grenades
-//-----------------------------------------------------------------------------
-class CWeaponFrag: public CBaseHLCombatWeapon
-{
-	DECLARE_CLASS( CWeaponFrag, CBaseHLCombatWeapon );
-public:
-	DECLARE_SERVERCLASS();
-
-public:
-	CWeaponFrag();
-
-	void	Precache( void );
-	void	Operator_HandleAnimEvent( animevent_t *pEvent, CBaseCombatCharacter *pOperator );
-	void	PrimaryAttack( void );
-	void	SecondaryAttack( void );
-	void	DecrementAmmo( CBaseCombatCharacter *pOwner );
-	void	ItemPostFrame( void );
-
-	bool	Deploy( void );
-	bool	Holster( CBaseCombatWeapon *pSwitchingTo = NULL );
-
-	int		CapabilitiesGet( void ) { return bits_CAP_WEAPON_RANGE_ATTACK1; }
-	
-	bool	Reload( void );
-
-	bool	ShouldDisplayHUDHint() { return true; }
-
-private:
-	void	ThrowGrenade( CBasePlayer *pPlayer );
-	void	RollGrenade( CBasePlayer *pPlayer );
-	void	LobGrenade( CBasePlayer *pPlayer );
-	// check a throw from vecSrc.  If not valid, move the position back along the line to vecEye
-	void	CheckThrowPosition( CBasePlayer *pPlayer, const Vector &vecEye, Vector &vecSrc );
-
-	bool	m_bRedraw;	//Draw the weapon again after throwing a grenade
-	
-	int		m_AttackPaused;
-	bool	m_fDrawbackFinished;
-
-	DECLARE_ACTTABLE();
-
-	DECLARE_DATADESC();
-};
-
-
 BEGIN_DATADESC( CWeaponFrag )
 	DEFINE_FIELD( m_bRedraw, FIELD_BOOLEAN ),
 	DEFINE_FIELD( m_AttackPaused, FIELD_INTEGER ),
@@ -82,21 +22,6 @@ END_DATADESC()
 acttable_t	CWeaponFrag::m_acttable[] = 
 {
 	{ ACT_RANGE_ATTACK1, ACT_RANGE_ATTACK_SLAM, true },
-
-#ifdef MAPBASE
-	// HL2:DM activities (for third-person animations in SP)
-	{ ACT_HL2MP_IDLE,					ACT_HL2MP_IDLE_GRENADE,                    false },
-	{ ACT_HL2MP_RUN,					ACT_HL2MP_RUN_GRENADE,                    false },
-	{ ACT_HL2MP_IDLE_CROUCH,			ACT_HL2MP_IDLE_CROUCH_GRENADE,            false },
-	{ ACT_HL2MP_WALK_CROUCH,			ACT_HL2MP_WALK_CROUCH_GRENADE,            false },
-	{ ACT_HL2MP_GESTURE_RANGE_ATTACK,	ACT_HL2MP_GESTURE_RANGE_ATTACK_GRENADE,    false },
-	{ ACT_HL2MP_GESTURE_RELOAD,			ACT_HL2MP_GESTURE_RELOAD_GRENADE,        false },
-	{ ACT_HL2MP_JUMP,					ACT_HL2MP_JUMP_GRENADE,			false },
-#if EXPANDED_HL2DM_ACTIVITIES
-	{ ACT_HL2MP_WALK,					ACT_HL2MP_WALK_GRENADE,					false },
-	{ ACT_HL2MP_GESTURE_RANGE_ATTACK2,	ACT_HL2MP_GESTURE_RANGE_ATTACK2_GRENADE,    false },
-#endif
-#endif
 };
 
 IMPLEMENT_ACTTABLE(CWeaponFrag);
@@ -303,6 +228,8 @@ void CWeaponFrag::PrimaryAttack( void )
 	m_AttackPaused = GRENADE_PAUSED_PRIMARY;
 	SendWeaponAnim( ACT_VM_PULLBACK_HIGH );
 	
+	m_bTeleport = true; 
+
 	// Put both of these off indefinitely. We do not know how long
 	// the player will hold the grenade.
 	m_flTimeWeaponIdle = FLT_MAX;
@@ -395,11 +322,23 @@ void CWeaponFrag::CheckThrowPosition( CBasePlayer *pPlayer, const Vector &vecEye
 	}
 }
 
+void CWeaponFrag::ChuckGrenade( CBasePlayer* pPlayer, float m_flCookTime )
+{
+	if (m_flNextPrimaryAttack < gpGlobals->curtime)
+	{
+		ThrowGrenade( pPlayer, m_flCookTime );
+		DecrementAmmo( pPlayer );
+		m_flNextPrimaryAttack = gpGlobals->curtime + RETHROW_DELAY;
+		m_flNextSecondaryAttack = gpGlobals->curtime + RETHROW_DELAY;
+		m_flTimeWeaponIdle = FLT_MAX; //NOTE: This is set once the animation has finished up!
+	}
+}
+
 //-----------------------------------------------------------------------------
 // Purpose: 
 // Input  : *pPlayer - 
 //-----------------------------------------------------------------------------
-void CWeaponFrag::ThrowGrenade( CBasePlayer *pPlayer )
+void CWeaponFrag::ThrowGrenade( CBasePlayer *pPlayer, float m_flCookTime )
 {
 	Vector	vecEye = pPlayer->EyePosition();
 	Vector	vForward, vRight;
@@ -413,15 +352,21 @@ void CWeaponFrag::ThrowGrenade( CBasePlayer *pPlayer )
 	Vector vecThrow;
 	pPlayer->GetVelocity( &vecThrow, NULL );
 	vecThrow += vForward * 1200;
-	Fraggrenade_Create( vecSrc, vec3_angle, vecThrow, AngularImpulse(600,random->RandomInt(-1200,1200),0), pPlayer, GRENADE_TIMER, false );
+	float timer = GRENADE_TIMER - m_flCookTime;
+	Fraggrenade_Create( 
+		    vecSrc, 
+			vec3_angle, 
+			vecThrow, 
+			AngularImpulse( 600, random->RandomInt( -1200, 1200 ), 0 ), 
+			pPlayer, 
+			timer, 
+			false,
+			m_bTeleport);
 
 	m_bRedraw = true;
+	m_bTeleport = false;
 
 	WeaponSound( SINGLE );
-
-#ifdef MAPBASE
-	pPlayer->SetAnimation( PLAYER_ATTACK1 );
-#endif
 
 	m_iPrimaryAttacks++;
 	gamestats->Event_WeaponFired( pPlayer, true, GetClassname() );
@@ -431,7 +376,7 @@ void CWeaponFrag::ThrowGrenade( CBasePlayer *pPlayer )
 // Purpose: 
 // Input  : *pPlayer - 
 //-----------------------------------------------------------------------------
-void CWeaponFrag::LobGrenade( CBasePlayer *pPlayer )
+void CWeaponFrag::LobGrenade( CBasePlayer *pPlayer, float m_flCookTime )
 {
 	Vector	vecEye = pPlayer->EyePosition();
 	Vector	vForward, vRight;
@@ -447,10 +392,6 @@ void CWeaponFrag::LobGrenade( CBasePlayer *pPlayer )
 
 	WeaponSound( WPN_DOUBLE );
 
-#ifdef MAPBASE
-	pPlayer->SetAnimation( PLAYER_ATTACK2 );
-#endif
-
 	m_bRedraw = true;
 
 	m_iPrimaryAttacks++;
@@ -461,7 +402,7 @@ void CWeaponFrag::LobGrenade( CBasePlayer *pPlayer )
 // Purpose: 
 // Input  : *pPlayer - 
 //-----------------------------------------------------------------------------
-void CWeaponFrag::RollGrenade( CBasePlayer *pPlayer )
+void CWeaponFrag::RollGrenade( CBasePlayer *pPlayer, float m_flCookTime )
 {
 	// BUGBUG: Hardcoded grenade width of 4 - better not change the model :)
 	Vector vecSrc;
@@ -494,10 +435,6 @@ void CWeaponFrag::RollGrenade( CBasePlayer *pPlayer )
 	Fraggrenade_Create( vecSrc, orientation, vecThrow, rotSpeed, pPlayer, GRENADE_TIMER, false );
 
 	WeaponSound( SPECIAL1 );
-
-#ifdef MAPBASE
-	pPlayer->SetAnimation( PLAYER_ATTACK2 );
-#endif
 
 	m_bRedraw = true;
 

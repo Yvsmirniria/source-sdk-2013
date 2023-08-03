@@ -34,6 +34,21 @@
 	#include "env_zoom.h"
 
 	extern int TrainSpeed(int iSpeed, int iMax);
+	extern ConVar sk_plr_dmg_crowbar;
+
+	// Damage to do when punching an enemy
+	ConVar sk_plr_dmg_phantom_fist(
+		"sk_plr_dmg_phantom_fist", "2");
+	ConVar sk_plr_vel_phantom_fist(
+		"sk_plr_vel_phantom_fist", "425" );
+	ConVar punch_supply_crates(
+		"punch_supply_crates", "1", 0,
+		"Punch supply crates instead of picking them up." );
+	ConVar punch_breakables( "punch_breakables", "0", 0, "Punch all breakable things" );
+	ConVar sv_phantom_fist_stun_time( 
+		"sv_phantom_first_stun_time", "0.3f" );
+	ConVar sv_phantom_fist_lift(
+		"sv_phantom_fist_lift", "0.25f" );
 	
 #endif
 
@@ -55,6 +70,9 @@
 #include "haptics/haptic_utils.h"
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
+
+#define PLAYER_PUNCH_RADIUS 38.0f
+#define PLAYER_PUNCH_INTERVAL 0.3f 
 
 #if defined(GAME_DLL) && !defined(_XBOX)
 	extern ConVar sv_pushaway_max_force;
@@ -163,30 +181,18 @@ void CBasePlayer::ItemPreFrame()
 	// Handle use events
 	PlayerUse();
 
-	//Tony; re-ordered this for efficiency and to make sure that certain things happen in the correct order!
-    if ( gpGlobals->curtime < m_flNextAttack )
-	{
-		return;
-	}
+#ifndef CLIENT_DLL
+	// Handle quick-throw grenade
+	ChuckGrenade(); 
 
-	if (!GetActiveWeapon())
-		return;
-
-#if defined( CLIENT_DLL )
-	// Not predicting this weapon
-	if ( !GetActiveWeapon()->IsPredicted() )
-		return;
+	CheckMelee();
 #endif
-
-	GetActiveWeapon()->ItemPreFrame();
-
-	CBaseCombatWeapon *pWeapon;
-
 	CBaseCombatWeapon *pActive = GetActiveWeapon();
+
 	// Allow all the holstered weapons to update
 	for ( int i = 0; i < WeaponCount(); ++i )
 	{
-		pWeapon = GetWeapon( i );
+		CBaseCombatWeapon *pWeapon = GetWeapon( i );
 
 		if ( pWeapon == NULL )
 			continue;
@@ -196,6 +202,20 @@ void CBasePlayer::ItemPreFrame()
 
 		pWeapon->ItemHolsterFrame();
 	}
+
+    if ( gpGlobals->curtime < m_flNextAttack )
+		return;
+
+	if (!pActive)
+		return;
+
+#if defined( CLIENT_DLL )
+	// Not predicting this weapon
+	if ( !pActive->IsPredicted() )
+		return;
+#endif
+
+	pActive->ItemPreFrame();
 }
 
 //-----------------------------------------------------------------------------
@@ -660,7 +680,9 @@ void CBasePlayer::UpdateStepSound( surfacedata_t *psurface, const Vector &vecOri
 		fvol *= 0.65;
 	}
 
-	PlayStepSound( feet, psurface, fvol, false );
+	// Only play the step sound if not powersliding
+	if ( !m_bIsPowerSliding )
+	    PlayStepSound( feet, psurface, fvol, false );
 }
 
 //-----------------------------------------------------------------------------
@@ -752,6 +774,105 @@ void CBasePlayer::PlayStepSound( Vector &vecOrigin, surfacedata_t *psurface, flo
 
 	// Kyle says: ugggh. This function may as well be called "PerformPileOfDesperateGameSpecificFootstepHacks".
 	OnEmitFootstepSound( params, vecOrigin, fvol );
+}
+
+
+//-----------------------------------------------------------------------------
+// Purpose: Play airjump sound (copy of PlayStepSound but simpler)
+// Input  : location - 
+//			fvol - 
+//-----------------------------------------------------------------------------
+void CBasePlayer::PlayAirjumpSound( Vector &vecOrigin )
+{
+#if defined( CLIENT_DLL )
+	// during prediction play footstep sounds only once
+	if (prediction->InPrediction() && !prediction->IsFirstTimePredicted())
+		return;
+#endif
+
+	CRecipientFilter filter;
+	filter.AddRecipientsByPAS(vecOrigin);
+
+#ifndef CLIENT_DLL
+	// in MP, server removes all players in the vecOrigin's PVS, these players generate the footsteps client side
+	if (gpGlobals->maxClients > 1)
+	{
+		filter.RemoveRecipientsByPVS(vecOrigin);
+	}
+#endif
+	
+	EmitSound( filter, entindex(), "Player.AirJump", &vecOrigin );
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Play powerslide sound (copy of PlayStepSound but simpler)
+// Input  : location - 
+//-----------------------------------------------------------------------------
+void CBasePlayer::PlayPowerSlideSound( Vector &vecOrigin )
+{
+#if defined( CLIENT_DLL )
+	// during prediction play footstep sounds only once
+	if (prediction->InPrediction() && !prediction->IsFirstTimePredicted())
+		return;
+#endif
+
+	CRecipientFilter filter;
+	filter.AddRecipientsByPAS( vecOrigin );
+
+#ifndef CLIENT_DLL
+	// in MP, server removes all players in the vecOrigin's PVS, these players generate the footsteps client side
+	if (gpGlobals->maxClients > 1)
+	{
+		filter.RemoveRecipientsByPVS( vecOrigin );
+	}
+#endif
+
+	EmitSound( 
+		filter, 
+		entindex(), 
+		"Player.PowerSlide",
+		m_hssPowerSlideSound);
+}
+
+void CBasePlayer::StopPowerSlideSound( void )
+{
+	StopSound( "Player.PowerSlide" , m_hssPowerSlideSound );
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Play wallrun sound (copy of PlayStepSound but simpler)
+// Input  : location - 
+//-----------------------------------------------------------------------------
+void CBasePlayer::PlayWallRunSound( Vector &vecOrigin )
+{
+#if defined( CLIENT_DLL )
+	// during prediction play footstep sounds only once
+	if (prediction->InPrediction() && !prediction->IsFirstTimePredicted())
+		return;
+#endif
+
+	CRecipientFilter filter;
+	filter.AddRecipientsByPAS( vecOrigin );
+
+#ifndef CLIENT_DLL
+	// in MP, server removes all players in the vecOrigin's PVS, these players generate the footsteps client side
+	if (gpGlobals->maxClients > 1)
+	{
+		filter.RemoveRecipientsByPVS( vecOrigin );
+	}
+#endif
+
+	EmitSound(
+		filter,
+		entindex(),
+		"Player.WallRun",
+		m_hssWallRunSound );
+}
+
+
+void CBasePlayer::StopWallRunSound( void )
+{
+	StopSound( "Player.WallRun", m_hssWallRunSound );
 }
 
 void CBasePlayer::UpdateButtonState( int nUserCmdButtonMask )
@@ -1120,6 +1241,102 @@ CBaseEntity *CBasePlayer::FindUseEntity()
 
 #ifndef CLIENT_DLL
 		pFoundByTrace = pObject;
+
+
+		// We can use an enemy somehow...
+		if ( pObject )
+		{
+			// Check the range
+			Vector delta = tr.endpos - tr.startpos;
+			float centerZ = CollisionProp()->WorldSpaceCenter().z;
+			delta.z = IntervalDistance( tr.endpos.z, centerZ + CollisionProp()->OBBMins().z, centerZ + CollisionProp()->OBBMaxs().z );
+			float dist = delta.Length();
+
+			if (dist < PLAYER_PUNCH_RADIUS)
+			{
+				CBaseCombatCharacter* npc = pObject->MyCombatCharacterPointer();
+				if ((npc && UTIL_IsPlayerEnemy( npc ) && npc->GetMaxHealth() <= 200) ||
+					pObject->ClassMatches("CAntlionGrub"))
+				{
+					// Punch them with the invisible hands we use to pick up cans
+					if (m_flShoveTime + PLAYER_PUNCH_INTERVAL < gpGlobals->curtime)
+					{
+						// Knock-back is the main point
+						Vector vPushAway = (npc->WorldSpaceCenter() - WorldSpaceCenter());
+						vPushAway.z = 0;
+
+						VectorNormalize( vPushAway );
+						vPushAway.z = 0.1; // bit of lift
+						vPushAway *= sk_plr_vel_phantom_fist.GetFloat();
+
+						int side = (RandomInt( 0, 1 ) * 2) - 1; // 1 or -1
+
+						npc->SetNextAttack( npc->GetNextAttack() + 0.75 ); // delay their next attack
+						CBaseCombatWeapon* theirGun = npc->GetActiveWeapon();
+						if (theirGun && RandomInt( 1, 8 ) == 8) {
+							// chance they drop their gun
+							npc->Weapon_Drop( theirGun );
+						}
+
+						CTakeDamageInfo dmgInfo( this, this, vPushAway, GetAbsOrigin(), sk_plr_dmg_phantom_fist.GetFloat(), DMG_CLUB );
+						npc->TakeDamage( dmgInfo );
+
+						npc->ApplyAbsVelocityImpulse( vPushAway );
+
+						CAI_BaseNPC* guy = dynamic_cast<CAI_BaseNPC*>(npc);
+						if (guy)
+						{
+							guy->TaskComplete( true );
+							guy->SetCondition( COND_HEAVY_DAMAGE );
+
+						}
+
+						// Make it look good
+						UTIL_ImpactTrace( &tr, DMG_CLUB );
+
+						UTIL_BloodSpray(
+							tr.endpos,
+							UTIL_RandomBloodVector(),
+							npc->BloodColor(),
+							8,
+							FX_BLOODSPRAY_ALL );
+
+						m_Local.m_vecPunchAngle.Set( YAW, side * 7 );
+						m_Local.m_vecPunchAngle.Set( PITCH, -2 );
+						float flSoundDur;
+						EmitSound( "Flesh.ImpactHard", 0.0, &flSoundDur );
+						m_flShoveTime = gpGlobals->curtime; // time for cooldown
+					}
+				}
+				else if ( IsSuitEquipped() && (punch_supply_crates.GetBool() &&
+					    FClassnameIs( pObject, "item_item_crate" )) ||
+					(punch_breakables.GetBool() && 
+					     FClassnameIs( pObject, "func_breakable" ) ||
+						 ( FClassnameIs(pObject, "prop_physics") &&
+						 Q_strstr(pObject->GetModelName().ToCStr(), "vent") != NULL )
+						 ) )
+				{
+					// Break the crate
+					if (m_flShoveTime + PLAYER_PUNCH_INTERVAL < gpGlobals->curtime)
+					{
+						Vector vPushAway = (pObject->WorldSpaceCenter() - WorldSpaceCenter());
+						VectorNormalize( vPushAway );
+						vPushAway *= sk_plr_vel_phantom_fist.GetFloat() / 2;
+						CTakeDamageInfo dmgInfo( this, this, vPushAway, GetAbsOrigin(), 
+							MIN(20, pObject->GetHealth()), DMG_CLUB );
+
+						pObject->TakeDamage( dmgInfo );
+
+						// Make it look good
+						UTIL_ImpactTrace( &tr, DMG_CLUB );
+
+						float flSoundDur;
+						EmitSound( "Flesh.ImpactHard", 0.0, &flSoundDur );
+						m_flShoveTime = gpGlobals->curtime; // time for cooldown
+					}
+				}
+			}
+		}
 #endif
 		bool bUsable = IsUseableEntity(pObject, 0);
 		while ( pObject && !bUsable && pObject->GetMoveParent() )
@@ -1134,22 +1351,24 @@ CBaseEntity *CBasePlayer::FindUseEntity()
 			float centerZ = CollisionProp()->WorldSpaceCenter().z;
 			delta.z = IntervalDistance( tr.endpos.z, centerZ + CollisionProp()->OBBMins().z, centerZ + CollisionProp()->OBBMaxs().z );
 			float dist = delta.Length();
-			if ( dist < PLAYER_USE_RADIUS )
+			if (dist < PLAYER_USE_RADIUS)
 			{
 #ifndef CLIENT_DLL
 
-				if ( sv_debug_player_use.GetBool() )
+				if (sv_debug_player_use.GetBool())
 				{
 					NDebugOverlay::Line( searchCenter, tr.endpos, 0, 255, 0, true, 30 );
 					NDebugOverlay::Cross3D( tr.endpos, 16, 0, 255, 0, true, 30 );
 				}
 
-				if ( pObject->MyNPCPointer() && pObject->MyNPCPointer()->IsPlayerAlly( this ) )
+				if (pObject->MyNPCPointer() &&
+					pObject->MyNPCPointer()->IsPlayerAlly( this ))
 				{
 					// If about to select an NPC, do a more thorough check to ensure
 					// that we're selecting the right one from a group.
 					pObject = DoubleCheckUseNPC( pObject, searchCenter, forward );
 				}
+	
 #endif
 				if ( sv_debug_player_use.GetBool() )
 				{
@@ -1569,6 +1788,12 @@ void CBasePlayer::CalcView( Vector &eyeOrigin, QAngle &eyeAngles, float &zNear, 
 	if(IsLocalPlayer() && haptics)
 		haptics->UpdatePlayerFOV(fov);
 #endif
+
+	// Little hack to reduce zNear when using wider FOV. (otherwise you can see through walls)
+	if (fov > 90)
+	{
+		zNear -= MIN((fov - 90) / 5, 5);
+	}
 }
 
 
@@ -1880,8 +2105,8 @@ int CBasePlayer::GetDefaultFOV( void ) const
 #endif
 
 	int iFOV = ( m_iDefaultFOV == 0 ) ? g_pGameRules->DefaultFOV() : m_iDefaultFOV;
-	if ( iFOV > MAX_FOV )
-		iFOV = MAX_FOV;
+	/*if ( iFOV > MAX_FOV )  /u/ZeUberSandvitch wanted a wider fov on /r/halflife.
+		iFOV = MAX_FOV;*/ 
 
 	return iFOV;
 }
@@ -2085,4 +2310,5 @@ bool fogparams_t::operator !=( const fogparams_t& other ) const
 
 	return false;
 }
+
 

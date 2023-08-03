@@ -64,6 +64,14 @@ void CFuncBrush::Spawn( void )
 	{
 		SetSolid( SOLID_BSP );
 	}
+	
+	/* MobMod: Disabled this skip since it ultimately doesn't save any time
+	if ( Q_strcmp( STRING( gpGlobals->mapname ), "d1_eli_01" ) == 0 &&
+		 ( Q_strcmp( STRING( GetEntityName() ), "pclip_exit_door_raven2" ) == 0 ||
+		   Q_strcmp( STRING( GetEntityName() ), "pclip_airlock_2_a" ) == 0 ) )
+	{
+		TurnOff();
+	}*/
 }
 
 //-----------------------------------------------------------------------------

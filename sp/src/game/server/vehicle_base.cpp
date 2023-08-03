@@ -66,15 +66,6 @@ BEGIN_DATADESC( CPropVehicle )
 
 END_DATADESC()
 
-#ifdef MAPBASE_VSCRIPT
-BEGIN_ENT_SCRIPTDESC( CPropVehicle, CBaseAnimating, "The base class for four-wheel physics vehicles." )
-
-	DEFINE_SCRIPTFUNC_NAMED( ScriptGetVehicleType, "GetVehicleType", "Get a vehicle's type." )
-	DEFINE_SCRIPTFUNC_NAMED( ScriptGetPhysics, "GetPhysics", "Get a vehicle's physics." )
-
-END_SCRIPTDESC();
-#endif
-
 LINK_ENTITY_TO_CLASS( prop_vehicle, CPropVehicle );
 
 //-----------------------------------------------------------------------------
@@ -214,6 +205,7 @@ void CPropVehicle::InputThrottle( inputdata_t &inputdata )
 //-----------------------------------------------------------------------------
 void CPropVehicle::InputSteering( inputdata_t &inputdata )
 {
+	Msg( "CPropVehicle::InputSteering\n" );
 	m_VehiclePhysics.SetSteering( inputdata.value.Float(), 2*gpGlobals->frametime );
 }
 
@@ -234,23 +226,6 @@ void CPropVehicle::InputHandBrakeOff( inputdata_t &inputdata )
 {
 	m_VehiclePhysics.ReleaseHandbrake();
 }
-
-#ifdef MAPBASE_VSCRIPT
-//-----------------------------------------------------------------------------
-// Purpose: 
-//-----------------------------------------------------------------------------
-HSCRIPT CPropVehicle::ScriptGetPhysics()
-{
-	HSCRIPT hScript = NULL;
-	CFourWheelVehiclePhysics *pPhysics = GetPhysics();
-	if (pPhysics)
-	{
-		hScript = g_pScriptVM->RegisterInstance( pPhysics );
-	}
-
-	return hScript;
-}
-#endif
 
 //-----------------------------------------------------------------------------
 // Purpose: 
@@ -352,7 +327,8 @@ IMPLEMENT_SERVERCLASS_ST(CPropVehicleDriveable, DT_PropVehicleDriveable)
 	SendPropVector(SENDINFO(m_vecEyeExitEndpoint), -1, SPROP_COORD),
 	SendPropBool(SENDINFO(m_bHasGun)),
 	SendPropVector(SENDINFO(m_vecGunCrosshair), -1, SPROP_COORD),
-END_SEND_TABLE();
+	SendPropFloat( SENDINFO( m_flVelocity ), 0, SPROP_NOSCALE ),
+END_SEND_TABLE()
 
 BEGIN_DATADESC( CPropVehicleDriveable )
 	// Inputs
@@ -360,12 +336,6 @@ BEGIN_DATADESC( CPropVehicleDriveable )
 	DEFINE_INPUTFUNC( FIELD_VOID, "Unlock",	InputUnlock ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "TurnOn",	InputTurnOn ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "TurnOff", InputTurnOff ),
-#ifdef MAPBASE
-	DEFINE_INPUTFUNC( FIELD_VOID, "EnterVehicle", InputEnterVehicle ),
-	DEFINE_INPUTFUNC( FIELD_VOID, "EnterVehicleImmediate", InputEnterVehicleImmediate ),
-	DEFINE_INPUTFUNC( FIELD_VOID, "ExitVehicle", InputExitVehicle ),
-	DEFINE_INPUTFUNC( FIELD_VOID, "ExitVehicleImmediate", InputExitVehicleImmediate ),
-#endif
 	DEFINE_INPUT( m_bHasGun, FIELD_BOOLEAN, "EnableGun" ),
 
 	// Outputs
@@ -375,9 +345,6 @@ BEGIN_DATADESC( CPropVehicleDriveable )
 	DEFINE_OUTPUT( m_pressedAttack2, "PressedAttack2" ),
 	DEFINE_OUTPUT( m_attackaxis, "AttackAxis" ),
 	DEFINE_OUTPUT( m_attack2axis, "Attack2Axis" ),
-#ifdef MAPBASE
-	DEFINE_OUTPUT( m_OnPlayerUse, "OnPlayerUse" ),
-#endif
 	DEFINE_FIELD( m_hPlayer, FIELD_EHANDLE ),
 
 	DEFINE_EMBEDDEDBYREF( m_pServerVehicle ),
@@ -391,7 +358,7 @@ BEGIN_DATADESC( CPropVehicleDriveable )
 	DEFINE_FIELD( m_bUnableToFire, FIELD_BOOLEAN ),
 	DEFINE_FIELD( m_vecEyeExitEndpoint, FIELD_POSITION_VECTOR ),
 	DEFINE_FIELD( m_vecGunCrosshair, FIELD_VECTOR ),
-
+	DEFINE_FIELD( m_flVelocity, FIELD_FLOAT ),
 	DEFINE_FIELD( m_bEngineLocked, FIELD_BOOLEAN ),
 	DEFINE_KEYFIELD( m_bLocked, FIELD_BOOLEAN, "VehicleLocked" ),
 	DEFINE_FIELD( m_flMinimumSpeedToEnterExit, FIELD_FLOAT ),
@@ -404,19 +371,6 @@ BEGIN_DATADESC( CPropVehicleDriveable )
 	DEFINE_FIELD( m_hKeepUpright, FIELD_EHANDLE ),
 
 END_DATADESC()
-
-#ifdef MAPBASE_VSCRIPT
-BEGIN_ENT_SCRIPTDESC( CPropVehicleDriveable, CPropVehicle, "The base class for driveable vehicles." )
-
-	DEFINE_SCRIPTFUNC( IsOverturned, "Check if the vehicle is overturned." )
-	DEFINE_SCRIPTFUNC( IsVehicleBodyInWater, "Check if the vehicle's body is submerged in water." )
-	DEFINE_SCRIPTFUNC( StartEngine, "Start the engine." )
-	DEFINE_SCRIPTFUNC( StopEngine, "Stop the engine." )
-	DEFINE_SCRIPTFUNC( IsEngineOn, "Check if the engine is on." )
-	DEFINE_SCRIPTFUNC_NAMED( ScriptGetDriver, "GetDriver", "Get a vehicle's driver, which could be either a player or a npc_vehicledriver." )
-
-END_SCRIPTDESC();
-#endif
 
 
 LINK_ENTITY_TO_CLASS( prop_vehicle_driveable, CPropVehicleDriveable );
@@ -605,10 +559,6 @@ void CPropVehicleDriveable::Use( CBaseEntity *pActivator, CBaseEntity *pCaller, 
 
 	ResetUseKey( pPlayer );
 
-#ifdef MAPBASE
-	m_OnPlayerUse.FireOutput(pActivator, this);
-#endif
-
 	m_pServerVehicle->HandlePassengerEntry( pPlayer, (value>0) );
 }
 
@@ -726,6 +676,7 @@ void CPropVehicleDriveable::DriveVehicle( float flFrameTime, CUserCmd *ucmd, int
 	m_VehiclePhysics.UpdateDriverControls( ucmd, flFrameTime );
 
 	m_nSpeed = m_VehiclePhysics.GetSpeed();	//send speed to client
+	m_flVelocity = m_VehiclePhysics.GetHLSpeed(); // send velocity to client
 	m_nRPM = clamp( m_VehiclePhysics.GetRPM(), 0, 4095 );
 	m_nBoostTimeLeft = m_VehiclePhysics.BoostTimeLeft();
 	m_nHasBoost = m_VehiclePhysics.HasBoost();
@@ -898,99 +849,6 @@ void CPropVehicleDriveable::InputTurnOff( inputdata_t &inputdata )
 	StopEngine();
 	m_VehiclePhysics.SetDisableEngine( true );
 }
-
-#ifdef MAPBASE
-//-----------------------------------------------------------------------------
-// Purpose: 
-//-----------------------------------------------------------------------------
-void CPropVehicleDriveable::InputEnterVehicle( inputdata_t &inputdata )
-{
-	if ( m_bEnterAnimOn )
-		return;
-
-	// Try the activator first & use them if they are a player.
-	CBaseCombatCharacter *pPassenger = ToBaseCombatCharacter( inputdata.pActivator );
-	if ( pPassenger == NULL )
-	{
-		// Activator was not a player, just grab the singleplayer player.
-		pPassenger = UTIL_PlayerByIndex( 1 );
-		if ( pPassenger == NULL )
-			return;
-	}
-
-	// FIXME: I hate code like this. I should really add a parameter to HandlePassengerEntry
-	//		  to allow entry into locked vehicles
-	bool bWasLocked = m_bLocked;
-	m_bLocked = false;
-	GetServerVehicle()->HandlePassengerEntry( pPassenger, true );
-	m_bLocked = bWasLocked;
-}
-
-//-----------------------------------------------------------------------------
-// Purpose: 
-// Input  : &inputdata - 
-//-----------------------------------------------------------------------------
-void CPropVehicleDriveable::InputEnterVehicleImmediate( inputdata_t &inputdata )
-{
-	if ( m_bEnterAnimOn )
-		return;
-
-	// Try the activator first & use them if they are a player.
-	CBaseCombatCharacter *pPassenger = ToBaseCombatCharacter( inputdata.pActivator );
-	if ( pPassenger == NULL )
-	{
-		// Activator was not a player, just grab the singleplayer player.
-		pPassenger = UTIL_PlayerByIndex( 1 );
-		if ( pPassenger == NULL )
-			return;
-	}
-
-	CBasePlayer *pPlayer = ToBasePlayer( pPassenger );
-	if ( pPlayer != NULL )
-	{
-		if ( pPlayer->IsInAVehicle() )
-		{
-			// Force the player out of whatever vehicle they are in.
-			pPlayer->LeaveVehicle();
-		}
-		
-		pPlayer->GetInVehicle( GetServerVehicle(), VEHICLE_ROLE_DRIVER );
-	}
-	else
-	{
-		// NPCs are not currently supported - jdw
-		Assert( 0 );
-	}
-}
-
-//-----------------------------------------------------------------------------
-// Purpose: 
-//-----------------------------------------------------------------------------
-void CPropVehicleDriveable::InputExitVehicle( inputdata_t &inputdata )
-{
-	if (!GetDriver())
-		return;
-
-	if ( CanExitVehicle(GetDriver()) )
-	{
-		GetServerVehicle()->HandlePassengerExit(GetDriver()->MyCombatCharacterPointer());
-	}
-}
-
-//-----------------------------------------------------------------------------
-// Purpose: 
-//-----------------------------------------------------------------------------
-void CPropVehicleDriveable::InputExitVehicleImmediate( inputdata_t &inputdata )
-{
-	if (!GetDriver())
-		return;
-
-	if (GetDriver()->IsPlayer())
-	{
-		static_cast<CBasePlayer*>(GetDriver())->LeaveVehicle();
-	}
-}
-#endif
 
 //-----------------------------------------------------------------------------
 // Purpose: Check to see if the engine is on.

@@ -197,11 +197,6 @@ public:
 	// If this is a vehicle, returns the vehicle interface
 	virtual IServerVehicle *GetServerVehicle() { return &m_ServerVehicle; }
 
-#ifdef MAPBASE
-	virtual bool IsPassengerUsingStandardWeapons( int nRole = VEHICLE_ROLE_DRIVER ) { return m_bAllowStandardWeapons; }
-	CNetworkVar( bool, m_bAllowStandardWeapons );
-#endif
-
 	bool ShouldCollide( int collisionGroup, int contentsMask ) const;
 
 	bool				m_bForcePlayerEyePoint;			// Uses player's eyepoint instead of 'vehicle_driver_eyes' attachment
@@ -261,10 +256,6 @@ BEGIN_DATADESC( CPropVehicleChoreoGeneric )
 	DEFINE_KEYFIELD( m_bIgnorePlayerCollisions, FIELD_BOOLEAN, "ignoreplayer" ),
 	DEFINE_KEYFIELD( m_bForcePlayerEyePoint, FIELD_BOOLEAN, "useplayereyes" ),
 
-#ifdef MAPBASE
-	DEFINE_KEYFIELD( m_bAllowStandardWeapons, FIELD_BOOLEAN, "AllowStandardWeapons" ),
-#endif
-
 	DEFINE_OUTPUT( m_playerOn, "PlayerOn" ),
 	DEFINE_OUTPUT( m_playerOff, "PlayerOff" ),
 	DEFINE_OUTPUT( m_OnOpen, "OnOpen" ),
@@ -290,9 +281,6 @@ IMPLEMENT_SERVERCLASS_ST(CPropVehicleChoreoGeneric, DT_PropVehicleChoreoGeneric)
 	SendPropFloat( SENDINFO_STRUCTELEM( m_vehicleView.flYawMax ) ),
 	SendPropFloat( SENDINFO_STRUCTELEM( m_vehicleView.flPitchMin ) ),
 	SendPropFloat( SENDINFO_STRUCTELEM( m_vehicleView.flPitchMax ) ),
-#ifdef MAPBASE
-	SendPropBool( SENDINFO( m_bAllowStandardWeapons ) ),
-#endif
 END_SEND_TABLE();
 
 

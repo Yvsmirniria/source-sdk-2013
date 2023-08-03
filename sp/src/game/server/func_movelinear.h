@@ -27,10 +27,6 @@ public:
 	bool		CreateVPhysics( void );
 	bool		ShouldSavePhysics( void );
 
-#ifdef MAPBASE
-	void		SetParent( CBaseEntity* pNewParent, int iAttachment = -1 );
-#endif
-
 	void		MoveTo(Vector vPosition, float flSpeed);
 	void		Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value );
 	void		MoveDone( void );
@@ -57,11 +53,6 @@ public:
 	float		m_flBlockDamage;		// Damage inflicted when blocked.
 	float		m_flStartPosition;		// Position of brush when spawned
 	float		m_flMoveDistance;		// Total distance the brush can move
-#ifdef MAPBASE
-	// For the parenting fix.
-	// Prevents position inconsistencies when changing parent.
-	Vector		m_vecReference;
-#endif
 
 	IPhysicsFluidController *m_pFluidController;
 

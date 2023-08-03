@@ -75,12 +75,6 @@ public:
 	virtual float GetOpenInterval(void) = 0;
 	// }
 
-#ifdef MAPBASE
-	virtual bool PassesDoorFilter(CBaseEntity *pEntity) { return true; }
-
-	virtual bool KeyValue( const char *szKeyName, const char *szValue );
-#endif
-
 protected:
 
 	enum DoorState_t
@@ -105,11 +99,9 @@ protected:
 
 	inline CBaseEntity *GetActivator();
 
-#ifdef MAPBASE
-	inline float GetNPCOpenDistance() { return m_flNPCOpenDistance; }
-	inline Activity GetNPCOpenFrontActivity() { return m_eNPCOpenFrontActivity; }
-	inline Activity GetNPCOpenBackActivity() { return m_eNPCOpenBackActivity; }
-#endif
+	// MobMod HACKHACK to force certain doors open
+	void ForceUnlock( inputdata_t &inputdata ) { InputUnlock( inputdata ); }
+	void ForceOpen( inputdata_t &inputdata ) { InputOpen( inputdata ); }
 
 private:
 
@@ -171,14 +163,12 @@ private:
 	// Input handlers
 	void InputClose(inputdata_t &inputdata);
 	void InputLock(inputdata_t &inputdata);
-	void InputOpen(inputdata_t &inputdata);
+	void InputOpen( inputdata_t &inputdata );
+	void InputUnlock( inputdata_t &inputdata );
+	
 	void InputOpenAwayFrom(inputdata_t &inputdata);
 	void InputToggle(inputdata_t &inputdata);
-	void InputUnlock(inputdata_t &inputdata);
-#ifdef MAPBASE
-	void InputAllowPlayerUse(inputdata_t &inputdata);
-	void InputDisallowPlayerUse(inputdata_t &inputdata);
-#endif
+
 
 	void SetDoorBlocker( CBaseEntity *pBlocker );
 
@@ -203,12 +193,6 @@ private:
 	string_t m_SoundMoving;
 	string_t m_SoundOpen;
 	string_t m_SoundClose;
-
-#ifdef MAPBASE
-	float	m_flNPCOpenDistance;
-	Activity	m_eNPCOpenFrontActivity;
-	Activity	m_eNPCOpenBackActivity;
-#endif
 
 	// dvs: FIXME: can we remove m_flSpeed from CBaseEntity?
 	//float m_flSpeed;			// Rotation speed when opening or closing in degrees per second.

@@ -154,9 +154,6 @@ public:
 	DECLARE_DATADESC();
 
 	void	Spawn( void );
-#ifdef MAPBASE
-	void	PrecacheCreditsThink();
-#endif
 	void	InputRollCredits( inputdata_t &inputdata );
 	void	InputRollOutroCredits( inputdata_t &inputdata );
 	void	InputShowLogo( inputdata_t &inputdata );
@@ -171,11 +168,6 @@ private:
 
 	bool		m_bRolledOutroCredits;
 	float		m_flLogoLength;
-
-#ifdef MAPBASE
-	// Custom credits.txt, defaults to that
-	string_t	m_iszCreditsFile;
-#endif
 };
 
 LINK_ENTITY_TO_CLASS( env_credits, CCredits );
@@ -187,12 +179,6 @@ BEGIN_DATADESC( CCredits )
 	DEFINE_INPUTFUNC( FIELD_FLOAT, "SetLogoLength", InputSetLogoLength ),
 	DEFINE_OUTPUT( m_OnCreditsDone, "OnCreditsDone"),
 
-#ifdef MAPBASE
-	DEFINE_KEYFIELD( m_iszCreditsFile, FIELD_STRING, "CreditsFile" ),
-
-	DEFINE_THINKFUNC( PrecacheCreditsThink ),
-#endif
-
 	DEFINE_FIELD( m_bRolledOutroCredits, FIELD_BOOLEAN ),
 	DEFINE_FIELD( m_flLogoLength, FIELD_FLOAT )
 END_DATADESC()
@@ -201,34 +187,7 @@ void CCredits::Spawn( void )
 {
 	SetSolid( SOLID_NONE );
 	SetMoveType( MOVETYPE_NONE );
-
-#ifdef MAPBASE
-	// Ensures the player has time to spawn
-	SetContextThink( &CCredits::PrecacheCreditsThink, gpGlobals->curtime + 0.5f, "PrecacheCreditsContext" );
-#endif
 }
-
-#ifdef MAPBASE
-void CCredits::PrecacheCreditsThink()
-{
-	CBasePlayer *pPlayer = UTIL_GetLocalPlayer();
-	if (!pPlayer)
-	{
-		Warning( "%s: No player\n", GetDebugName() );
-		return;
-	}
-
-	CSingleUserRecipientFilter user( pPlayer );
-	user.MakeReliable();
-	
-	UserMessageBegin( user, "CreditsMsg" );
-		WRITE_BYTE( 4 );
-		WRITE_STRING( STRING(m_iszCreditsFile) );
-	MessageEnd();
-
-	SetContextThink( NULL, TICK_NEVER_THINK, "PrecacheCreditsContext" );
-}
-#endif
 
 static void CreditsDone_f( void )
 {
@@ -244,10 +203,6 @@ static ConCommand creditsdone("creditsdone", CreditsDone_f );
 
 extern ConVar sv_unlockedchapters;
 
-#ifdef MAPBASE
-extern int Mapbase_GetChapterCount();
-#endif
-
 void CCredits::OnRestore()
 {
 	BaseClass::OnRestore();
@@ -262,22 +217,29 @@ void CCredits::OnRestore()
 
 void CCredits::RollOutroCredits()
 {
-#ifdef MAPBASE
-	// Don't set this if we're using Mapbase chapters or if sv_unlockedchapters is already greater than 15
-	if (Mapbase_GetChapterCount() <= 0 && sv_unlockedchapters.GetInt() < 15)
-#endif
-	sv_unlockedchapters.SetValue( "15" );
-	
+	int iCredType;
+	if (NameMatches( "mob_credits" )) {
+		iCredType = 4; // Mobility credits
+	}
+	else if (IsHL2Map()) {
+		iCredType = 3; // HL2 credits
+	}
+	else if (IsEp1Map()) {
+		iCredType = 5; // EP1 credits
+	}
+	else {
+		iCredType = 6; // EP2 credits
+	}
+
+	Msg( "RollOutroCredits type %d\n", iCredType );
+
 	CBasePlayer *pPlayer = UTIL_GetLocalPlayer();
 
 	CSingleUserRecipientFilter user( pPlayer );
 	user.MakeReliable();
 
 	UserMessageBegin( user, "CreditsMsg" );
-		WRITE_BYTE( 3 );
-#ifdef MAPBASE
-		WRITE_STRING( STRING(m_iszCreditsFile) );
-#endif
+		WRITE_BYTE( iCredType );
 	MessageEnd();
 }
 
@@ -302,18 +264,12 @@ void CCredits::InputShowLogo( inputdata_t &inputdata )
 	{
 		UserMessageBegin( user, "LogoTimeMsg" );
 			WRITE_FLOAT( m_flLogoLength );
-#ifdef MAPBASE
-			WRITE_STRING( STRING(m_iszCreditsFile) );
-#endif
 		MessageEnd();
 	}
 	else
 	{
 		UserMessageBegin( user, "CreditsMsg" );
 			WRITE_BYTE( 1 );
-#ifdef MAPBASE
-			WRITE_STRING( STRING(m_iszCreditsFile) );
-#endif
 		MessageEnd();
 	}
 }
@@ -332,8 +288,5 @@ void CCredits::InputRollCredits( inputdata_t &inputdata )
 
 	UserMessageBegin( user, "CreditsMsg" );
 		WRITE_BYTE( 2 );
-#ifdef MAPBASE
-		WRITE_STRING( STRING(m_iszCreditsFile) );
-#endif
 	MessageEnd();
 }

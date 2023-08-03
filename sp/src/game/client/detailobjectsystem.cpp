@@ -48,8 +48,8 @@
 struct model_t;
 
 
-ConVar cl_detaildist( "cl_detaildist", "1200", 0, "Distance at which detail props are no longer visible" );
-ConVar cl_detailfade( "cl_detailfade", "400", 0, "Distance across which detail props fade in" );
+ConVar cl_detaildist( "cl_detaildist", "1600", 0, "Distance at which detail props are no longer visible" );
+ConVar cl_detailfade( "cl_detailfade", "800", 0, "Distance across which detail props fade in" );
 #if defined( USE_DETAIL_SHAPES ) 
 ConVar cl_detail_max_sway( "cl_detail_max_sway", "0", FCVAR_ARCHIVE, "Amplitude of the detail prop sway" );
 ConVar cl_detail_avoid_radius( "cl_detail_avoid_radius", "0", FCVAR_ARCHIVE, "radius around detail sprite to avoid players" );
@@ -1440,6 +1440,7 @@ CDetailObjectSystem::~CDetailObjectSystem()
 //-----------------------------------------------------------------------------
 void CDetailObjectSystem::LevelInitPreEntity()
 {
+
 	// Prepare the translucent detail sprite material; we only have 1!
 	m_DetailSpriteMaterial.Init( "detail/detailsprites", TEXTURE_GROUP_OTHER );
 	m_DetailWireframeMaterial.Init( "debug/debugspritewireframe", TEXTURE_GROUP_OTHER );
@@ -1471,10 +1472,11 @@ void CDetailObjectSystem::LevelInitPreEntity()
 		}
 	}
 
-#ifndef MAPBASE
 	if ( m_DetailObjects.Count() || m_DetailSpriteDict.Count() )
 	{
 		// There are detail objects in the level, so precache the material
+
+		materials->ReloadMaterials( DETAIL_SPRITE_MATERIAL );
 		PrecacheMaterial( DETAIL_SPRITE_MATERIAL );
 		IMaterial *pMat = m_DetailSpriteMaterial;
 		// adjust for non-square textures (cropped)
@@ -1490,7 +1492,6 @@ void CDetailObjectSystem::LevelInitPreEntity()
 			}
 		}
 	}
-#endif
 
 	int detailPropLightingLump;
 	if( g_pMaterialSystemHardwareConfig->GetHDRType() != HDR_TYPE_NONE )
@@ -1514,32 +1515,6 @@ void CDetailObjectSystem::LevelInitPreEntity()
 
 void CDetailObjectSystem::LevelInitPostEntity()
 {
-#ifdef MAPBASE
-	if ( m_DetailObjects.Count() || m_DetailSpriteDict.Count() )
-	{
-		const char *pDetailSpriteMaterial = DETAIL_SPRITE_MATERIAL;
-		C_World *pWorld = GetClientWorldEntity();
-		if ( pWorld && pWorld->GetDetailSpriteMaterial() && *(pWorld->GetDetailSpriteMaterial()) )
-			pDetailSpriteMaterial = pWorld->GetDetailSpriteMaterial(); 
- 
-		m_DetailSpriteMaterial.Init( pDetailSpriteMaterial, TEXTURE_GROUP_OTHER );
-		PrecacheMaterial( pDetailSpriteMaterial );
-		IMaterial *pMat = m_DetailSpriteMaterial;
- 
-		// adjust for non-square textures (cropped)
-		float flRatio = pMat->GetMappingWidth() / pMat->GetMappingHeight();
-		if ( flRatio > 1.0 )
-		{
-			for( int i = 0; i<m_DetailSpriteDict.Count(); i++ )
-			{
-				m_DetailSpriteDict[i].m_TexUL.y *= flRatio;
-				m_DetailSpriteDict[i].m_TexLR.y *= flRatio;
-				m_DetailSpriteDictFlipped[i].m_TexUL.y *= flRatio;
-				m_DetailSpriteDictFlipped[i].m_TexLR.y *= flRatio;
-			}
-		}
-	}
-#else
 	const char *pDetailSpriteMaterial = DETAIL_SPRITE_MATERIAL;
 	C_World *pWorld = GetClientWorldEntity();
 	if ( pWorld && pWorld->GetDetailSpriteMaterial() && *(pWorld->GetDetailSpriteMaterial()) )
@@ -1547,7 +1522,6 @@ void CDetailObjectSystem::LevelInitPostEntity()
 		pDetailSpriteMaterial = pWorld->GetDetailSpriteMaterial(); 
 	}
 	m_DetailSpriteMaterial.Init( pDetailSpriteMaterial, TEXTURE_GROUP_OTHER );
-#endif
 
 	if ( GetDetailController() )
 	{
@@ -1624,14 +1598,12 @@ void CDetailObjectSystem::UnserializeModelDict( CUtlBuffer& buf )
 		DetailModelDict_t dict;
 		dict.m_pModel = (model_t *)engine->LoadModel( lump.m_Name, true );
 
-#ifndef MAPBASE
 		// Don't allow vertex-lit models
 		if (modelinfo->IsModelVertexLit(dict.m_pModel))
 		{
 			Warning("Detail prop model %s is using vertex-lit materials!\nIt must use unlit materials!\n", lump.m_Name );
 			dict.m_pModel = (model_t *)engine->LoadModel( "models/error.mdl" );
 		}
-#endif
 
 		m_DetailObjectDict.AddToTail( dict );
 	}

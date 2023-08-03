@@ -11,9 +11,6 @@
 #include "Sprite.h"
 #include "SpriteTrail.h"
 #include "soundent.h"
-#ifdef MAPBASE
-#include "mapbase/ai_grenade.h"
-#endif
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -29,6 +26,8 @@ const float GRENADE_COEFFICIENT_OF_RESTITUTION = 0.2f;
 ConVar sk_plr_dmg_fraggrenade	( "sk_plr_dmg_fraggrenade","0");
 ConVar sk_npc_dmg_fraggrenade	( "sk_npc_dmg_fraggrenade","0");
 ConVar sk_fraggrenade_radius	( "sk_fraggrenade_radius", "0");
+ConVar grenade_teleporting      ( "grenade_teleporting", "0" );
+
 
 #define GRENADE_MODEL "models/Weapons/w_grenade.mdl"
 
@@ -46,6 +45,7 @@ public:
 	void	Spawn( void );
 	void	OnRestore( void );
 	void	Precache( void );
+	void    Explode( trace_t *pTrace, int bitsDamageType );
 	bool	CreateVPhysics( void );
 	void	CreateEffects( void );
 	void	SetTimer( float detonateDelay, float warnDelay );
@@ -59,6 +59,13 @@ public:
 	bool	IsCombineSpawned( void ) const { return m_combineSpawned; }
 	void	SetPunted( bool punt ) { m_punted = punt; }
 	bool	WasPunted( void ) const { return m_punted; }
+	
+	bool    ShouldTeleportPlayer() {
+		return m_bTele && grenade_teleporting.GetBool();
+	}
+	void    SetTeleport( bool bTele ) {
+		m_bTele = bTele;
+	}
 
 	// this function only used in episodic.
 #if defined(HL2_EPISODIC) && 0 // FIXME: HandleInteraction() is no longer called now that base grenade derives from CBaseAnimating
@@ -75,6 +82,7 @@ protected:
 	bool	m_inSolid;
 	bool	m_combineSpawned;
 	bool	m_punted;
+	bool    m_bTele;
 };
 
 LINK_ENTITY_TO_CLASS( npc_grenade_frag, CGrenadeFrag );
@@ -129,31 +137,8 @@ void CGrenadeFrag::Spawn( void )
 	SetCollisionGroup( COLLISION_GROUP_WEAPON );
 	CreateVPhysics();
 
-#ifdef MAPBASE
-	if (GetThrower() && GetThrower()->IsNPC())
-	{
-		// One of OnThrowGrenade's useful applications is replacing it with another entity using point_entity_replace.
-		// However, the grenade is always able to let out a blip before being replaced, which can be confusing/undesirable.
-		// This code checks to see if OnThrowGrenade is being used for anything, in which case the first blip will be very slightly delayed.
-		// This doesn't interfere with when the grenade actually detonates and shouldn't be noticable if the grenade is kept by OnThrowGrenade anyway.
-		CAI_GrenadeUserSink *pGrenadeUser = dynamic_cast<CAI_GrenadeUserSink*>(GetThrower());
-		if (pGrenadeUser && pGrenadeUser->UsingOnThrowGrenade())
-		{
-			// We delay the blip by 0.05, so replacement must occur within that period in order to skip the blip.
-			m_flNextBlipTime = gpGlobals->curtime + 0.05f;
-		}
-	}
-
-	// Do the blip if m_flNextBlipTime wasn't changed
-	if (m_flNextBlipTime <= gpGlobals->curtime)
-	{
-		BlipSound();
-		m_flNextBlipTime = gpGlobals->curtime + FRAG_GRENADE_BLIP_FREQUENCY;
-	}
-#else
 	BlipSound();
 	m_flNextBlipTime = gpGlobals->curtime + FRAG_GRENADE_BLIP_FREQUENCY;
-#endif
 
 	AddSolidFlags( FSOLID_NOT_STANDABLE );
 
@@ -311,6 +296,19 @@ void CGrenadeFrag::Precache( void )
 	BaseClass::Precache();
 }
 
+void CGrenadeFrag::Explode( trace_t *pTrace, int bitsDamageType ) {
+
+	BaseClass::Explode( pTrace, bitsDamageType );
+
+	CBaseCombatCharacter* thrower = GetThrower();
+	if (thrower && thrower->IsPlayer() && ShouldTeleportPlayer()) {
+		CBasePlayer* pPlayer = ToBasePlayer( thrower );
+		if (pPlayer) {
+			pPlayer->Teleport( &GetAbsOrigin(), &pPlayer->GetAbsAngles(), &pPlayer->GetAbsVelocity() );
+		}
+	}
+}
+
 void CGrenadeFrag::SetTimer( float detonateDelay, float warnDelay )
 {
 	m_flDetonateTime = gpGlobals->curtime + detonateDelay;
@@ -442,17 +440,25 @@ void CGrenadeFrag::InputSetTimer( inputdata_t &inputdata )
 	SetTimer( inputdata.value.Float(), inputdata.value.Float() - FRAG_GRENADE_WARN_TIME );
 }
 
-CBaseGrenade *Fraggrenade_Create( const Vector &position, const QAngle &angles, const Vector &velocity, const AngularImpulse &angVelocity, CBaseEntity *pOwner, float timer, bool combineSpawned )
+CBaseGrenade *Fraggrenade_Create( 
+	    const Vector &position, 
+		const QAngle &angles, 
+		const Vector &velocity, 
+		const AngularImpulse &angVelocity, 
+		CBaseEntity *pOwner, 
+		float timer, 
+		bool combineSpawned, 
+		bool teleport)
 {
 	// Don't set the owner here, or the player can't interact with grenades he's thrown
 	CGrenadeFrag *pGrenade = (CGrenadeFrag *)CBaseEntity::Create( "npc_grenade_frag", position, angles, pOwner );
-	
-	pGrenade->SetTimer( timer, timer - FRAG_GRENADE_WARN_TIME );
+
+	pGrenade->SetTimer( timer, MAX(0.2, timer - FRAG_GRENADE_WARN_TIME ));
 	pGrenade->SetVelocity( velocity, angVelocity );
 	pGrenade->SetThrower( ToBaseCombatCharacter( pOwner ) );
 	pGrenade->m_takedamage = DAMAGE_EVENTS_ONLY;
 	pGrenade->SetCombineSpawned( combineSpawned );
-
+	pGrenade->SetTeleport( teleport );
 	return pGrenade;
 }
 

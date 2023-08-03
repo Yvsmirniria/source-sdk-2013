@@ -12,6 +12,10 @@
 #pragma once
 #endif
 
+typedef enum coloridx {
+	R,G,B,A
+};
+
 //-----------------------------------------------------------------------------
 // Purpose: Basic handler for an rgb set of colors
 //			This class is fully inline

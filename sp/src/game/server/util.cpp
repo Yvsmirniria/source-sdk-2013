@@ -36,9 +36,6 @@
 #include "datacache/imdlcache.h"
 #include "util.h"
 #include "cdll_int.h"
-#ifdef MAPBASE
-#include "fmtstr.h"
-#endif
 
 #ifdef PORTAL
 #include "PortalSimulation.h"
@@ -57,7 +54,12 @@ void DBG_AssertFunction( bool fExpr, const char *szExpr, const char *szFile, int
 {
 	if (fExpr)
 		return;
-	Warning("ASSERT FAILED:\n %s \n(%s@%d)\n%s", szExpr, szFile, szLine, szMessage ? szMessage : "");
+	char szOut[512];
+	if (szMessage != NULL)
+		Q_snprintf(szOut,sizeof(szOut), "ASSERT FAILED:\n %s \n(%s@%d)\n%s", szExpr, szFile, szLine, szMessage);
+	else
+		Q_snprintf(szOut,sizeof(szOut), "ASSERT FAILED:\n %s \n(%s@%d)\n", szExpr, szFile, szLine);
+	Warning( szOut);
 }
 #endif	// DEBUG
 
@@ -202,46 +204,6 @@ void CEntityFactoryDictionary::ReportEntitySizes()
 	}
 }
 
-#ifdef MAPBASE
-int EntityFactory_AutoComplete( const char *cmdname, CUtlVector< CUtlString > &commands, CUtlRBTree< CUtlString > &symbols, char *substring, int checklen = 0 )
-{
-	CEntityFactoryDictionary *pFactoryDict = (CEntityFactoryDictionary*)EntityFactoryDictionary();
-	for ( int i = pFactoryDict->m_Factories.First(); i != pFactoryDict->m_Factories.InvalidIndex(); i = pFactoryDict->m_Factories.Next( i ) )
-	{
-		const char *name = pFactoryDict->m_Factories.GetElementName( i );
-		if (Q_strnicmp(name, substring, checklen))
-			continue;
-
-		CUtlString sym = name;
-		int idx = symbols.Find(sym);
-		if (idx == symbols.InvalidIndex())
-		{
-			symbols.Insert(sym);
-		}
-
-		// Too many
-		if (symbols.Count() >= COMMAND_COMPLETION_MAXITEMS)
-			break;
-	}
-
-	// Now fill in the results
-	for (int i = symbols.FirstInorder(); i != symbols.InvalidIndex(); i = symbols.NextInorder(i))
-	{
-		const char *name = symbols[i].String();
-
-		char buf[512];
-		Q_strncpy(buf, name, sizeof(buf));
-		Q_strlower(buf);
-
-		CUtlString command;
-		command = CFmtStr("%s %s", cmdname, buf);
-		commands.AddToTail(command);
-	}
-
-	return symbols.Count();
-}
-#endif
-
 
 //-----------------------------------------------------------------------------
 // class CFlaggedEntitiesEnum
@@ -332,14 +294,6 @@ int UTIL_EntitiesInSphere( const Vector &center, float radius, CFlaggedEntitiesE
 	partition->EnumerateElementsInSphere( PARTITION_ENGINE_NON_STATIC_EDICTS, center, radius, false, pEnum );
 	return pEnum->GetCount();
 }
-
-#ifdef MAPBASE
-int UTIL_EntitiesAtPoint( const Vector &point, CFlaggedEntitiesEnum *pEnum )
-{
-	partition->EnumerateElementsAtPoint( PARTITION_ENGINE_NON_STATIC_EDICTS, point, false, pEnum );
-	return pEnum->GetCount();
-}
-#endif
 
 CEntitySphereQuery::CEntitySphereQuery( const Vector &center, float radius, int flagMask )
 {
@@ -1036,7 +990,7 @@ void UTIL_ScreenFadeWrite( const ScreenFade_t &fade, CBaseEntity *pEntity )
 
 	UserMessageBegin( user, "Fade" );		// use the magic #1 for "one client"
 		WRITE_SHORT( fade.duration );		// fade lasts this long
-		WRITE_SHORT( fade.holdTime );		// fade lasts this long
+		WRITE_WORD( fade.holdTime );		// fade lasts this long
 		WRITE_SHORT( fade.fadeFlags );		// fade type (in / out)
 		WRITE_BYTE( fade.r );				// fade red
 		WRITE_BYTE( fade.g );				// fade green
@@ -1072,7 +1026,7 @@ void UTIL_ScreenFade( CBaseEntity *pEntity, const color32 &color, float fadeTime
 }
 
 
-void UTIL_HudMessage( CBasePlayer *pToPlayer, const hudtextparms_t &textparms, const char *pMessage, const char *pszFont, bool bAutobreak )
+void UTIL_HudMessage( CBasePlayer *pToPlayer, const hudtextparms_t &textparms, const char *pMessage )
 {
 	CRecipientFilter filter;
 	
@@ -1105,19 +1059,12 @@ void UTIL_HudMessage( CBasePlayer *pToPlayer, const hudtextparms_t &textparms, c
 		WRITE_FLOAT( textparms.holdTime );
 		WRITE_FLOAT( textparms.fxTime );
 		WRITE_STRING( pMessage );
-#ifdef MAPBASE
-		WRITE_STRING( pszFont );
-		if (bAutobreak)
-		{
-			WRITE_BYTE ( Q_strlen( pMessage ) );
-		}
-#endif
 	MessageEnd();
 }
 
-void UTIL_HudMessageAll( const hudtextparms_t &textparms, const char *pMessage, const char *pszFont, bool bAutobreak )
+void UTIL_HudMessageAll( const hudtextparms_t &textparms, const char *pMessage )
 {
-	UTIL_HudMessage( NULL, textparms, pMessage, pszFont, bAutobreak );
+	UTIL_HudMessage( NULL, textparms, pMessage );
 }
 
 void UTIL_HudHintText( CBaseEntity *pEntity, const char *pMessage )
@@ -1343,19 +1290,9 @@ void UTIL_SetModel( CBaseEntity *pEntity, const char *pModelName )
 	int i = modelinfo->GetModelIndex( pModelName );
 	if ( i == -1 )	
 	{
-#if defined(MAPBASE) && !defined(_DEBUG)
-		// Throwing a program-terminating error might be a little too much since we could just precache it here.
-		// If we're not in debug mode, just let it off with a nice warning.
-		if (int newi = CBaseEntity::PrecacheModel(pModelName))
-		{
-			i = newi;
-			Warning("%s was not precached\n", pModelName);
-		}
-#else
 		Error("%i/%s - %s:  UTIL_SetModel:  not precached: %s\n", pEntity->entindex(),
 			STRING( pEntity->GetEntityName() ),
 			pEntity->GetClassname(), pModelName);
-#endif
 	}
 
 	CBaseAnimating *pAnimating = pEntity->GetBaseAnimating();
@@ -1409,6 +1346,35 @@ void UTIL_SnapDirectionToAxis( Vector &direction, float epsilon )
 			return;
 		}
 	}
+}
+
+bool UTIL_IsPlayerEnemy( CBaseEntity* pent )
+{
+	CBasePlayer* pPlayer = UTIL_GetLocalPlayer();
+	if (!pPlayer)
+		return false;
+
+	if (pent)
+	{
+
+		CBaseCombatCharacter* bcc = ToBaseCombatCharacter( pent );
+		if (bcc)
+		{
+			if (bcc->IRelationType( pPlayer ) >= D_LI && // Like or neutral
+				!pent->ClassMatches("npc_helicopter")) // in ep2 the helicopter is set to ignore player
+				return false; 
+		}
+
+		Class_T theClass = pent->Classify();
+		return !(theClass == CLASS_PLAYER_ALLY ||
+			theClass == CLASS_PLAYER_ALLY_VITAL || // gman is vital
+			theClass == CLASS_EARTH_FAUNA ||
+			theClass == CLASS_VORTIGAUNT ||
+			theClass == CLASS_CONSCRIPT ||
+			theClass == CLASS_CITIZEN_PASSIVE ||
+			theClass == CLASS_CITIZEN_REBEL);
+	}
+	return false;
 }
 
 char *UTIL_VarArgs( const char *format, ... )
@@ -1847,40 +1813,6 @@ void UTIL_PrecacheOther( const char *szClassname, const char *modelName )
 	UTIL_RemoveImmediate( pEntity );
 }
 
-#ifdef MAPBASE
-//-----------------------------------------------------------------------------
-// Purpose: Tests whether this entity exists in the dictionary and if it does, precaches it. (as opposed to complaining when it's missing)
-// Input  : *szClassname - 
-//			*modelName - 
-//-----------------------------------------------------------------------------
-bool UTIL_TestPrecacheOther( const char *szClassname, const char *modelName )
-{
-#if defined( PRECACHE_OTHER_ONCE )
-	// already done this one?, if not, mark as done
-	if ( !g_PrecacheOtherList.AddOrMarkPrecached( szClassname ) )
-		return true;
-#endif
-
-	// If we can't create it, it probably does not exist
-	CBaseEntity	*pEntity = CreateEntityByName( szClassname );
-	if (!pEntity)
-		return false;
-
-	// If we have a specified model, set it before calling precache
-	if ( modelName && modelName[0] )
-	{
-		pEntity->SetModelName( AllocPooledString( modelName ) );
-	}
-	
-	if (pEntity)
-		pEntity->Precache( );
-
-	UTIL_RemoveImmediate( pEntity );
-
-	return true;
-}
-#endif
-
 //=========================================================
 // UTIL_LogPrintf - Prints a logged message to console.
 // Preceded by LOG: ( timestamp ) < message >
@@ -1961,7 +1893,7 @@ extern "C" void Sys_Error( char *error, ... )
 //			*mapData - pointer a block of entity map data
 // Output : -1 if the entity was not successfully created; 0 on success
 //-----------------------------------------------------------------------------
-int DispatchSpawn( CBaseEntity *pEntity, bool bRunVScripts )
+int DispatchSpawn( CBaseEntity *pEntity )
 {
 	if ( pEntity )
 	{
@@ -1975,12 +1907,6 @@ int DispatchSpawn( CBaseEntity *pEntity, bool bRunVScripts )
 		// is this necessary?
 		//pEntity->SetAbsMins( pEntity->GetOrigin() - Vector(1,1,1) );
 		//pEntity->SetAbsMaxs( pEntity->GetOrigin() + Vector(1,1,1) );
-
-		if (bRunVScripts)
-		{
-			pEntity->RunVScripts();
-			pEntity->RunPrecacheScripts();
-		}
 
 #if defined(TRACK_ENTITY_MEMORY) && defined(USE_MEM_DEBUG)
 		const char *pszClassname = NULL;
@@ -2048,11 +1974,6 @@ int DispatchSpawn( CBaseEntity *pEntity, bool bRunVScripts )
 		}
 
 		gEntList.NotifySpawn( pEntity );
-
-		if( bRunVScripts )
-		{
-			pEntity->RunOnPostSpawnScripts();
-		}
 	}
 
 	return 0;
@@ -2151,14 +2072,11 @@ void UTIL_ValidateSoundName( string_t &name, const char *defaultStr )
 //			sep - Character to use as separator. UNDONE: allow multiple separator chars
 // Output : Returns a pointer to the next token to be parsed.
 //-----------------------------------------------------------------------------
-const char *nexttoken(char *token, const char *str, char sep, size_t tokenLen)
+const char *nexttoken(char *token, const char *str, char sep)
 {
 	if ((str == NULL) || (*str == '\0'))
 	{
-		if(tokenLen)
-		{
-			*token = '\0';
-		}
+		*token = '\0';
 		return(NULL);
 	}
 
@@ -2166,25 +2084,11 @@ const char *nexttoken(char *token, const char *str, char sep, size_t tokenLen)
 	// Copy everything up to the first separator into the return buffer.
 	// Do not include separators in the return buffer.
 	//
-	while ((*str != sep) && (*str != '\0') && (tokenLen > 1))
- 	{
- 		*token++ = *str++;
-		tokenLen--;
-	}
-
-	//
-	// If token is to big for return buffer, skip rest of token.
-	//
 	while ((*str != sep) && (*str != '\0'))
 	{
-		str++;
+		*token++ = *str++;
 	}
-
-	if(tokenLen)
-	{
-		*token = '\0';
-		tokenLen--;
- 	}
+	*token = '\0';
 
 	//
 	// Advance the pointer unless we hit the end of the input string.
@@ -2563,10 +2467,6 @@ void UTIL_PredictedPosition( CBaseEntity *pTarget, float flTimeDelta, Vector *ve
 			if ( pAnimating != NULL )
 			{
 				vecPredictedVel = pAnimating->GetGroundSpeedVelocity();
-#ifdef MAPBASE
-				if (vecPredictedVel.IsZero())
-					vecPredictedVel = pAnimating->GetSmoothedVelocity();
-#endif
 			}
 			else
 			{
@@ -2579,80 +2479,6 @@ void UTIL_PredictedPosition( CBaseEntity *pTarget, float flTimeDelta, Vector *ve
 	//Get the result
 	(*vecPredictedPosition) = pTarget->GetAbsOrigin() + ( vecPredictedVel * flTimeDelta );
 }
-
-#ifdef MAPBASE
-//-----------------------------------------------------------------------------
-// Purpose: Same as above, except you don't have to use the absolute origin and can use your own position to predict from.
-//-----------------------------------------------------------------------------
-void UTIL_PredictedPosition( CBaseEntity *pTarget, const Vector &vecActualPosition, float flTimeDelta, Vector *vecPredictedPosition )
-{
-	if ( ( pTarget == NULL ) || ( vecPredictedPosition == NULL ) )
-		return;
-
-	Vector	vecPredictedVel;
-	CBasePlayer	*pPlayer = ToBasePlayer( pTarget );
-	if ( pPlayer != NULL )
-	{
-		if ( pPlayer->IsInAVehicle() )
-			vecPredictedVel = pPlayer->GetVehicleEntity()->GetSmoothedVelocity();
-		else
-			vecPredictedVel = pPlayer->GetSmoothedVelocity();
-	}
-	else
-	{
-		CBaseCombatCharacter *pCCTarget = pTarget->MyCombatCharacterPointer();
-		if ( pCCTarget != NULL && pCCTarget->IsInAVehicle() )
-			vecPredictedVel = pCCTarget->GetVehicleEntity()->GetSmoothedVelocity();
-		else
-		{
-			CBaseAnimating *pAnimating = dynamic_cast<CBaseAnimating *>(pTarget);
-			if ( pAnimating != NULL )
-			{
-				vecPredictedVel = pAnimating->GetGroundSpeedVelocity();
-				if (vecPredictedVel.IsZero())
-					vecPredictedVel = pAnimating->GetSmoothedVelocity();
-			}
-			else
-				vecPredictedVel = pTarget->GetSmoothedVelocity();
-		}
-	}
-
-	// Get the result
-	(*vecPredictedPosition) = vecActualPosition + ( vecPredictedVel * flTimeDelta );
-}
-
-//-----------------------------------------------------------------------------
-// Purpose: Predicts angles through angular velocity instead of predicting origin through regular velocity.
-//-----------------------------------------------------------------------------
-void UTIL_PredictedAngles( CBaseEntity *pTarget, const QAngle &angActualAngles, float flTimeDelta, QAngle *angPredictedAngles )
-{
-	if ( ( pTarget == NULL ) || ( angPredictedAngles == NULL ) )
-		return;
-
-	QAngle	angPredictedVel;
-	CBasePlayer	*pPlayer = ToBasePlayer( pTarget );
-	if ( pPlayer != NULL )
-	{
-		if ( pPlayer->IsInAVehicle() )
-			angPredictedVel = pPlayer->GetVehicleEntity()->GetLocalAngularVelocity();
-		else
-			angPredictedVel = pPlayer->GetLocalAngularVelocity();
-	}
-	else
-	{
-		CBaseCombatCharacter *pCCTarget = pTarget->MyCombatCharacterPointer();
-		if ( pCCTarget != NULL && pCCTarget->IsInAVehicle() )
-			angPredictedVel = pCCTarget->GetVehicleEntity()->GetLocalAngularVelocity();
-		else
-		{
-			angPredictedVel = pTarget->GetLocalAngularVelocity();
-		}
-	}
-
-	// Get the result
-	(*angPredictedAngles) = angActualAngles + ( angPredictedVel * flTimeDelta );
-}
-#endif
 
 //-----------------------------------------------------------------------------
 // Purpose: Points the destination entity at the target entity
@@ -3087,6 +2913,47 @@ void UTIL_BoundToWorldSize( Vector *pVecPos )
 		(*pVecPos)[ i ] = clamp( (*pVecPos)[ i ], MIN_COORD_FLOAT, MAX_COORD_FLOAT );
 	}
 }
+
+// Copied from BaseEntity.cpp. Used for HACK in math_counter/env_message
+bool UTIL_NamesMatch( const char *pszQuery, string_t nameToMatch )
+{
+	if (nameToMatch == NULL_STRING)
+		return (!pszQuery || *pszQuery == 0 || *pszQuery == '*');
+
+	const char *pszNameToMatch = STRING( nameToMatch );
+
+	// If the pointers are identical, we're identical
+	if (pszNameToMatch == pszQuery)
+		return true;
+
+	while (*pszNameToMatch && *pszQuery)
+	{
+		unsigned char cName = *pszNameToMatch;
+		unsigned char cQuery = *pszQuery;
+		// simple ascii case conversion
+		if (cName == cQuery)
+			;
+		else if (cName - 'A' <= (unsigned char)'Z' - 'A' && cName - 'A' + 'a' == cQuery)
+			;
+		else if (cName - 'a' <= (unsigned char)'z' - 'a' && cName - 'a' + 'A' == cQuery)
+			;
+		else
+			break;
+		++pszNameToMatch;
+		++pszQuery;
+	}
+
+	if (*pszQuery == 0 && *pszNameToMatch == 0)
+		return true;
+
+	// @TODO (toml 03-18-03): Perhaps support real wildcards. Right now, only thing supported is trailing *
+	if (*pszQuery == '*')
+		return true;
+
+	return false;
+}
+
+
 
 //=============================================================================
 //

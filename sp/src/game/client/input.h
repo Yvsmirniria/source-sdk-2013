@@ -284,7 +284,8 @@ extern class ConVar joy_autosprint;
 
 extern void KeyDown( kbutton_t *b, const char *c );
 extern void KeyUp( kbutton_t *b, const char *c );
-
+extern bool IN_ClearSpeedToggle();
+extern bool IN_ClearDuckToggle();
 
 #endif // INPUT_H
 	

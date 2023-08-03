@@ -10,6 +10,7 @@
 //=============================================================================//
 
 #include "cbase.h"
+#include "c_vehicle_airboat.h"
 #include "c_prop_vehicle.h"
 #include "datacache/imdlcache.h"
 #include "flashlighteffect.h"
@@ -27,6 +28,7 @@
 #include "c_basehlplayer.h"
 #include "vgui_controls/Controls.h"
 #include "vgui/ISurface.h"
+#include "hud_crosshair.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -55,94 +57,7 @@ ConVar airboat_joy_response_move( "airboat_joy_response_move", "1" );					// Qua
 
 #define HEADLIGHT_DISTANCE		1000
 
-#define	MAX_WAKE_POINTS	16
-#define	WAKE_POINT_MASK (MAX_WAKE_POINTS-1)
-
-#define	WAKE_LIFETIME	0.5f
-
-//=============================================================================
-//
-// Client-side Airboat Class
-//
-class C_PropAirboat : public C_PropVehicleDriveable
-{
-	DECLARE_CLASS( C_PropAirboat, C_PropVehicleDriveable );
-
-public:
-
-	DECLARE_CLIENTCLASS();
-	DECLARE_INTERPOLATION();
- 	DECLARE_DATADESC();
-
-	C_PropAirboat();
-	~C_PropAirboat();
-
-public:
-
-	// C_BaseEntity
-	virtual void Simulate();
-
-	// IClientVehicle
-	virtual void UpdateViewAngles( C_BasePlayer *pLocalPlayer, CUserCmd *pCmd );
-	virtual void OnEnteredVehicle( C_BasePlayer *pPlayer );
-	virtual int GetPrimaryAmmoType() const;
-	virtual int GetPrimaryAmmoClip() const;
-	virtual bool PrimaryAmmoUsesClips() const;
-	virtual int GetPrimaryAmmoCount() const;
-	virtual int GetJoystickResponseCurve() const;
-
-	int		DrawModel( int flags );
-
-	// Draws crosshair in the forward direction of the boat
-	void DrawHudElements( );
-
-private:
-
-	void DrawPropWake( Vector origin, float speed );
-	void DrawPontoonSplash( Vector position, Vector direction, float speed );
-	void DrawPontoonWake( Vector startPos, Vector wakeDir, float wakeLength, float speed);
-
-	void DampenEyePosition( Vector &vecVehicleEyePos, QAngle &vecVehicleEyeAngles );
-	void DampenForwardMotion( Vector &vecVehicleEyePos, QAngle &vecVehicleEyeAngles, float flFrameTime );
-	void DampenUpMotion( Vector &vecVehicleEyePos, QAngle &vecVehicleEyeAngles, float flFrameTime );
-	void ComputePDControllerCoefficients( float *pCoefficientsOut, float flFrequency, float flDampening, float flDeltaTime );
-
-	void UpdateHeadlight( void );
-	void UpdateWake( void );
-	int	 DrawWake( void );
-	void DrawSegment( const BeamSeg_t &beamSeg, const Vector &vNormal );
-
-	TrailPoint_t *GetTrailPoint( int n )
-	{
-		int nIndex = (n + m_nFirstStep) & WAKE_POINT_MASK;
-		return &m_vecSteps[nIndex];
-	}
-
-private:
-
-	Vector		m_vecLastEyePos;
-	Vector		m_vecLastEyeTarget;
-	Vector		m_vecEyeSpeed;
-	Vector		m_vecTargetSpeed;
-
-	float		m_flViewAngleDeltaTime;
-
-	bool		m_bHeadlightIsOn;
-	int			m_nAmmoCount;
-	CHeadlightEffect *m_pHeadlight;
-
-	int				m_nExactWaterLevel;
-	
-	TrailPoint_t	m_vecSteps[MAX_WAKE_POINTS];
-	int				m_nFirstStep;
-	int				m_nStepCount;
-	float			m_flUpdateTime;
-
-	TimedEvent		m_SplashTime;
-	CMeshBuilder	m_Mesh;
-
-	Vector			m_vecPhysVelocity;
-};
+#define TARGET_CIRCLE_SCALE 0.0125f
 
 IMPLEMENT_CLIENTCLASS_DT( C_PropAirboat, DT_PropAirboat, CPropAirboat )
 	RecvPropBool( RECVINFO( m_bHeadlightIsOn ) ),
@@ -150,7 +65,13 @@ IMPLEMENT_CLIENTCLASS_DT( C_PropAirboat, DT_PropAirboat, CPropAirboat )
 	RecvPropInt( RECVINFO( m_nExactWaterLevel ) ),
 	RecvPropInt( RECVINFO( m_nWaterLevel ) ),
 	RecvPropVector( RECVINFO( m_vecPhysVelocity ) ),
+	RecvPropFloat( RECVINFO( m_flVelocity ) ),
+	RecvPropInt( RECVINFO( m_nRocketsReady ) ),
+	RecvPropInt( RECVINFO( m_nRocketsQueued ) ),
+	RecvPropArray3( RECVINFO_ARRAY( m_hRocketTargets ), RecvPropEHandle( RECVINFO( m_hRocketTargets[0] ) ) )
+
 END_RECV_TABLE()
+
 
 
 BEGIN_DATADESC( C_PropAirboat )
@@ -185,6 +106,11 @@ C_PropAirboat::C_PropAirboat()
 	m_nFirstStep = 0;
 	m_nStepCount = 0;
 	m_SplashTime.Init( 60 );
+
+	vgui::HScheme scheme = vgui::scheme()->GetScheme( "ClientScheme" );
+	vgui::IScheme *pScheme = vgui::scheme()->GetIScheme( scheme );
+	m_hTrebHuge = pScheme->GetFont( "TrebuchetHuge", true );
+
 }
 
 //-----------------------------------------------------------------------------
@@ -226,6 +152,32 @@ int C_PropAirboat::GetPrimaryAmmoClip() const
 	return -1; 
 }
 
+int C_PropAirboat::GetCurrentSpeed() const
+{
+	if (this->m_vecPhysVelocity.IsValid()) {
+		return floor( VectorLength( this->m_vecPhysVelocity ) );
+	}
+	else
+	{
+		return 0;
+	}
+}
+
+int C_PropAirboat::GetRocketsReady() 
+{
+	return m_nRocketsReady;
+}
+
+int C_PropAirboat::GetRocketsQueued() 
+{
+	return m_nRocketsQueued;
+}
+
+EHANDLE* C_PropAirboat::GetRocketTargets()
+{
+	return m_hRocketTargets;
+}
+
 //-----------------------------------------------------------------------------
 // The airboat prefers a more peppy response curve for joystick control.
 //-----------------------------------------------------------------------------
@@ -237,14 +189,14 @@ int C_PropAirboat::GetJoystickResponseCurve() const
 //-----------------------------------------------------------------------------
 // Draws crosshair in the forward direction of the boat
 //-----------------------------------------------------------------------------
-void C_PropAirboat::DrawHudElements( )
+void C_PropAirboat::DrawHudElements()
 {
 	BaseClass::DrawHudElements();
 
 	MDLCACHE_CRITICAL_SECTION();
 
 	CHudTexture *pIcon = gHUD.GetIcon( IsX360() ? "crosshair_default" : "plushair" );
-	if ( pIcon != NULL )
+	if (pIcon != NULL)
 	{
 		float x, y;
 		Vector screen;
@@ -253,9 +205,10 @@ void C_PropAirboat::DrawHudElements( )
 		vgui::surface()->GetFullscreenViewport( vx, vy, vw, vh );
 		float screenWidth = vw;
 		float screenHeight = vh;
-		
-		x = screenWidth/2;
-		y = screenHeight/2;
+
+
+		x = screenWidth / 2;
+		y = screenHeight / 2;
 
 		int eyeAttachmentIndex = LookupAttachment( "vehicle_driver_eyes" );
 		Vector vehicleEyeOrigin;
@@ -273,12 +226,55 @@ void C_PropAirboat::DrawHudElements( )
 		x += 0.5 * screen[0] * screenWidth + 0.5;
 		y -= 0.5 * screen[1] * screenHeight + 0.5;
 
-		x -= pIcon->Width() / 2; 
-		y -= pIcon->Height() / 2; 
-		
+		x -= pIcon->Width() / 2;
+		y -= pIcon->Height() / 2;
+
 		pIcon->DrawSelf( x, y, gHUD.m_clrNormal );
+
+		// Draw targeting circles for rocket targets
+		const int halfw = vw / 2;
+		const int halfh = vh / 2;
+		vgui::surface()->DrawSetTextColor( 255, 220, 0, 127 );
+		vgui::surface()->DrawSetTextFont( m_hTrebHuge );
+
+		int fontW, fontH;
+		const wchar_t ch = HOLLOW_BULLET_CHAR;
+		vgui::surface()->GetTextSize( m_hTrebHuge, &ch, fontW, fontH );
+
+		// When the rocket is fired the number of queued rockets is
+		// decreased, but we want to keep drawing the circle until the 
+		// rocket explodes, so check the whole array and draw any valid
+		// targets (rocket sets target to null when it explodes)
+		for (int i = 0; i < AIRBOAT_ROCKETS; i++) {
+
+			C_BaseEntity* pentTarget = m_hRocketTargets[i].Get();
+			if (pentTarget) {
+				Vector vecTgtPos = pentTarget->WorldSpaceCenter();
+				if (!vecTgtPos.IsValid()) 
+				{
+					vecTgtPos = pentTarget->GetAbsOrigin();
+				}
+				Vector screen;
+
+				// Have a target - get world xyz and convert to screen xy
+				ScreenTransform( vecTgtPos, screen );
+				// screen coordinates are from -1.0 to 1.0
+				int x = halfw + (screen.x * halfw);
+				int y = halfh - (screen.y * halfh);
+
+				if (x >= 0 && x <= vw && y >= 0 && y <= vh)
+				{
+					// the y offset has to be more than half because the circle character
+					// is not centered vertically
+					vgui::surface()->DrawSetTextPos( x - (fontW / 2), y - (fontH * 0.55f) ); 
+					vgui::surface()->DrawUnicodeChar( HOLLOW_BULLET_CHAR );
+				}
+			}
+		}
 	}
+
 }
+
 
 //-----------------------------------------------------------------------------
 // Purpose: Blend view angles.

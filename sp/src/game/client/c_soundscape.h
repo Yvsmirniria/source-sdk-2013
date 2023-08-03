@@ -24,8 +24,4 @@ extern void Soundscape_Update( audioparams_t &audio );
 // sounds are still playing when they're not.
 void Soundscape_OnStopAllSounds();
 
-#ifdef MAPBASE
-void Soundscape_AddFile( const char *szFile );
-#endif
-
 #endif // C_SOUNDSCAPE_H

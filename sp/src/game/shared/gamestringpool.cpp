@@ -12,9 +12,6 @@
 #include "igamesystem.h"
 #endif
 #include "gamestringpool.h"
-#if defined(MAPBASE) && defined(GAME_DLL)
-#include "mapbase/GlobalStrings.h"
-#endif
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -29,9 +26,6 @@ class CGameStringPool : public CBaseGameSystem
 #endif
 {
 	virtual char const *Name() { return "CGameStringPool"; }
-#if defined(MAPBASE) && defined(GAME_DLL)
-	virtual void LevelInitPreEntity() { InitGlobalStrings(); }
-#endif
 	virtual void LevelShutdownPostEntity() { FreeAll(); }
 
 	void FreeAll()
@@ -56,16 +50,15 @@ public:
 	void Dump( void )
 	{
 		CUtlVector<const char*> strings( 0, m_Strings.Count() );
-		for ( UtlHashHandle_t i = m_Strings.FirstHandle(); i != m_Strings.InvalidHandle(); i = m_Strings.NextHandle(i) )
+		for (UtlHashHandle_t i = m_Strings.FirstHandle(); i != m_Strings.InvalidHandle(); i = m_Strings.NextHandle(i))
 		{
-			strings.AddToTail( m_Strings[i] );
+			strings.AddToTail( strings[i] );
 		}
-
 		struct _Local {
 			static int __cdecl F(const char * const *a, const char * const *b) { return strcmp(*a, *b); }
 		};
 		strings.Sort( _Local::F );
-
+		
 		for ( int i = 0; i < strings.Count(); ++i )
 		{
 			DevMsg( "  %d (0x%p) : %s\n", i, strings[i], strings[i] );

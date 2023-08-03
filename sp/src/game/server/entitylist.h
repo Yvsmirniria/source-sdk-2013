@@ -14,6 +14,7 @@
 #endif
 
 #include "baseentity.h"
+#include "searchpath_manager.h"
 
 class IEntityListener;
 
@@ -65,36 +66,6 @@ public:
 	virtual bool ShouldFindEntity( CBaseEntity *pEntity ) = 0;
 	virtual CBaseEntity *GetFilterResult( void ) = 0;
 };
-
-#ifdef MAPBASE
-// Returns false every time. Created for some sick hack involving FindEntityProcedural looking at FindNamedEntity.
-class CNullEntityFilter : public IEntityFindFilter
-{
-public:
-	virtual bool ShouldFindEntity( CBaseEntity *pEntity ) { return false; }
-	virtual CBaseEntity *GetFilterResult( void ) { return NULL; }
-};
-
-//-----------------------------------------------------------------------------
-// Custom procedural names via VScript. This allows users to reference new '!' targets
-// or override existing ones. It is capable of returning multiple entities when needed.
-// 
-// This is useful if you want I/O and beyond to reference an entity/a number of entities
-// which may possess differing or ambiguous targetnames, or if you want to reference an
-// entity specific to the context of the operation (e.g. getting the searching entity's
-// current weapon).
-// 
-// For example, you could add a new procedural called "!first_child" which uses VScript to
-// return the searching entity's first child entity. You could also add a procedural called
-// "!children" which returns all of the searching entity's child entities.
-//-----------------------------------------------------------------------------
-struct CustomProcedural_t
-{
-	HSCRIPT hFunc;
-	const char *szName;
-	bool bCanReturnMultiple;
-};
-#endif
 
 //-----------------------------------------------------------------------------
 // Purpose: a global list of all the entities in the game.  All iteration through
@@ -163,11 +134,7 @@ public:
 
 	// search functions
 	bool		 IsEntityPtr( void *pTest );
-#ifdef MAPBASE
-	CBaseEntity *FindEntityByClassname( CBaseEntity *pStartEntity, const char *szName, IEntityFindFilter *pFilter = NULL );
-#else
 	CBaseEntity *FindEntityByClassname( CBaseEntity *pStartEntity, const char *szName );
-#endif
 	CBaseEntity *FindEntityByName( CBaseEntity *pStartEntity, const char *szName, CBaseEntity *pSearchingEntity = NULL, CBaseEntity *pActivator = NULL, CBaseEntity *pCaller = NULL, IEntityFindFilter *pFilter = NULL );
 	CBaseEntity *FindEntityByName( CBaseEntity *pStartEntity, string_t iszName, CBaseEntity *pSearchingEntity = NULL, CBaseEntity *pActivator = NULL, CBaseEntity *pCaller = NULL, IEntityFindFilter *pFilter = NULL )
 	{
@@ -180,15 +147,10 @@ public:
 	CBaseEntity *FindEntityByNameNearest( const char *szName, const Vector &vecSrc, float flRadius, CBaseEntity *pSearchingEntity = NULL, CBaseEntity *pActivator = NULL, CBaseEntity *pCaller = NULL );
 	CBaseEntity *FindEntityByNameWithin( CBaseEntity *pStartEntity, const char *szName, const Vector &vecSrc, float flRadius, CBaseEntity *pSearchingEntity = NULL, CBaseEntity *pActivator = NULL, CBaseEntity *pCaller = NULL );
 	CBaseEntity *FindEntityByClassnameNearest( const char *szName, const Vector &vecSrc, float flRadius );
-	CBaseEntity *FindEntityByClassnameNearest2D( const char *szName, const Vector &vecSrc, float flRadius ); // From Alien Swarm SDK
 	CBaseEntity *FindEntityByClassnameWithin( CBaseEntity *pStartEntity , const char *szName, const Vector &vecSrc, float flRadius );
 	CBaseEntity *FindEntityByClassnameWithin( CBaseEntity *pStartEntity , const char *szName, const Vector &vecMins, const Vector &vecMaxs );
 
-#ifdef MAPBASE
-	CBaseEntity *FindEntityGeneric( CBaseEntity *pStartEntity, const char *szName, CBaseEntity *pSearchingEntity = NULL, CBaseEntity *pActivator = NULL, CBaseEntity *pCaller = NULL, IEntityFindFilter *pFilter = NULL );
-#else
 	CBaseEntity *FindEntityGeneric( CBaseEntity *pStartEntity, const char *szName, CBaseEntity *pSearchingEntity = NULL, CBaseEntity *pActivator = NULL, CBaseEntity *pCaller = NULL );
-#endif
 	CBaseEntity *FindEntityGenericWithin( CBaseEntity *pStartEntity, const char *szName, const Vector &vecSrc, float flRadius, CBaseEntity *pSearchingEntity = NULL, CBaseEntity *pActivator = NULL, CBaseEntity *pCaller = NULL );
 	CBaseEntity *FindEntityGenericNearest( const char *szName, const Vector &vecSrc, float flRadius, CBaseEntity *pSearchingEntity = NULL, CBaseEntity *pActivator = NULL, CBaseEntity *pCaller = NULL );
 	
@@ -197,19 +159,7 @@ public:
 	CBaseEntity *FindEntityByNetname( CBaseEntity *pStartEntity, const char *szModelName );
 
 	CBaseEntity *FindEntityProcedural( const char *szName, CBaseEntity *pSearchingEntity = NULL, CBaseEntity *pActivator = NULL, CBaseEntity *pCaller = NULL );
-#ifdef MAPBASE_VSCRIPT
-	CBaseEntity *FindEntityCustomProcedural( CBaseEntity *pStartEntity, const char *szName, CBaseEntity *pSearchingEntity = NULL, CBaseEntity *pActivator = NULL, CBaseEntity *pCaller = NULL );
-
-	void AddCustomProcedural( const char *pszName, HSCRIPT hFunc, bool bCanReturnMultiple );
-	void RemoveCustomProcedural( const char *pszName );
-#endif
-
-	// Fast versions that require a (real) string_t, and won't do wildcarding
-	// From Alien Swarm SDK
-	CBaseEntity *FindEntityByClassnameFast( CBaseEntity *pStartEntity, string_t iszClassname );
-	CBaseEntity *FindEntityByClassnameNearestFast( string_t iszClassname, const Vector &vecSrc, float flRadius );
-	CBaseEntity *FindEntityByNameFast( CBaseEntity *pStartEntity, string_t iszName );
-
+	
 	CGlobalEntityList();
 
 // CBaseEntityList overrides.
@@ -375,18 +325,18 @@ public:
 	inline void ReportDestroyEvent( CBaseEntity *pEntity )
 	{
 		notify_destroy_params_t destroy;
-		ReportSystemEvent( pEntity, NOTIFY_EVENT_DESTROY, notify_system_event_params_t(&destroy) );
+		ReportSystemEvent( pEntity, NOTIFY_EVENT_DESTROY, notify_system_event_params_t( &destroy ) );
 	}
-	
+
 	inline void ReportTeleportEvent( CBaseEntity *pEntity, const Vector &prevOrigin, const QAngle &prevAngles, bool physicsRotate )
 	{
 		notify_teleport_params_t teleport;
 		teleport.prevOrigin = prevOrigin;
 		teleport.prevAngles = prevAngles;
 		teleport.physicsRotate = physicsRotate;
-		ReportSystemEvent( pEntity, NOTIFY_EVENT_TELEPORT, notify_system_event_params_t(&teleport) );
+		ReportSystemEvent( pEntity, NOTIFY_EVENT_TELEPORT, notify_system_event_params_t( &teleport ) );
 	}
-	
+
 	// Remove this entity from the notify list
 	virtual void ClearEntity( CBaseEntity *pNotify ) = 0;
 };
@@ -406,11 +356,55 @@ extern INotify *g_pNotify;
 void EntityTouch_Add( CBaseEntity *pEntity );
 int AimTarget_ListCount();
 int AimTarget_ListCopy( CBaseEntity *pList[], int listMax );
-CBaseEntity *AimTarget_ListElement( int iIndex );
 void AimTarget_ForceRepopulateList();
 
 void SimThink_EntityChanged( CBaseEntity *pEntity );
 int SimThink_ListCount();
 int SimThink_ListCopy( CBaseEntity *pList[], int listMax );
+
+
+// some jeep name hacking
+// HACKHACK: If map name starts with d, is hl2 map.Not ideal.
+static bool IsHL2Map( const char* mapname = gpGlobals->mapname.ToCStr() )
+{
+
+	return (Q_strlen( mapname ) > 1 &&
+		(mapname[0] == 'd' || Q_strcmp( mapname, "credits" ) == 0));
+}
+
+static bool IsEp1Map( const char* mapname = gpGlobals->mapname.ToCStr() )
+{
+	return (Q_strstr( mapname, "ep1" ) != NULL);
+}
+// TODO need a more reliable way to determine game map belongs to 
+static int GetModIndexForMap( const char* mapname = gpGlobals->mapname.ToCStr() )
+{
+	Assert( Q_strlen( mapname ) > 1 );
+	if (mapname[0] == 'd' || Q_strcmp( mapname, "credits" ) == 0) {
+		return SearchPathManager::SPM_HL2;
+	}
+	if (Q_strstr( mapname, "ep1_" ) == mapname) {
+		return SearchPathManager::SPM_EP1;
+    }
+	if (Q_strstr( mapname, "ep2_" ) == mapname ||
+		Q_strstr( mapname, "mob_" ) == mapname)
+	{
+		return SearchPathManager::SPM_EP2;
+	}
+	return SearchPathManager::SPM_OTHER;
+}
+
+static string_t GetJeepName( bool bHl2_map )
+{
+#ifdef HL2_EPISODIC
+	if (bHl2_map)
+	{
+		return MAKE_STRING("prop_vehicle_hl2buggy");
+	}
+#endif // HL2_EPISODIC
+	return MAKE_STRING("prop_vehicle_jeep");
+}
+
+
 
 #endif // ENTITYLIST_H

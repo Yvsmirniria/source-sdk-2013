@@ -1,0 +1,36 @@
+These are the files from the ep2_mobility package that you would need to add to your mod's base.
+
+You can put these bin files in your own mod without needing to build source code. Just make sure
+gameinfo.txt has the gamebin path setup correctly. If you're using Mobility Mod source code in 
+your own source, then obviously you would build your own binaries. 
+bin/client.dll
+bin/server.dll
+
+
+// Lots of console variables need to be set
+cfg/config.cfg
+cfg/mobility.cfg
+cfg/modsettings.cfg
+
+
+resource/clientscheme.res
+resource/ep2_mobility_english.txt
+resource/mobility_english.txt
+resource/optionssubvideoadvanceddlg.res
+resource/valve_english.txt
+
+scripts/game_sounds_physics.txt
+scripts/game_sounds_player.txt
+scripts/hudlayout.res
+scripts/kb_act.ls
+scripts/weapon_egar.txt
+
+sound/physics/*
+sound/weapons/*
+sound/airjump.wav
+sound/beeps0.wav
+sound/beeps1.wav
+sound/beeps2.wav
+sound/beeps3.wav
+sound/powerslide.wav
+sound/wallrun.wav

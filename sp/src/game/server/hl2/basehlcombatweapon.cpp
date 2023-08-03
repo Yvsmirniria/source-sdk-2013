@@ -168,12 +168,16 @@ void CHLMachineGun::DoMachineGunKick( CBasePlayer *pPlayer, float dampEasy, floa
 	float kickPerc = duration / slideLimitTime;
 
 	// do this to get a hard discontinuity, clear out anything under 10 degrees punch
-	pPlayer->ViewPunchReset( 10 );
+	if (pPlayer->m_nWallRunState < WALLRUN_LEAN_IN)
+	{
+		pPlayer->ViewPunchReset( 10 );
+	}
+	else return; // 
 
 	//Apply this to the view angles as well
 	vecScratch.x = -( KICK_MIN_X + ( maxVerticleKickAngle * kickPerc ) );
 	vecScratch.y = -( KICK_MIN_Y + ( maxVerticleKickAngle * kickPerc ) ) / 3;
-	vecScratch.z = KICK_MIN_Z + ( maxVerticleKickAngle * kickPerc ) / 8;
+	vecScratch.z = 0;// KICK_MIN_Z + (maxVerticleKickAngle * kickPerc) / 8;
 
 	//Wibble left and right
 	if ( random->RandomInt( -1, 1 ) >= 0 )
@@ -394,10 +398,6 @@ void CHLSelectFireMachineGun::SecondaryAttack( void )
 	{
 		m_iSecondaryAttacks++;
 		gamestats->Event_WeaponFired( pOwner, false, GetClassname() );
-
-#ifdef MAPBASE
-		pOwner->SetAnimation( PLAYER_ATTACK2 );
-#endif
 	}
 }
 

@@ -95,9 +95,6 @@ private:
 	void				InputOpenCanister( inputdata_t &inputdata );
 	void				InputSpawnHeadcrabs( inputdata_t &inputdata );
 	void				InputStopSmoke( inputdata_t &inputdata );
-#ifdef MAPBASE
-	void				InputStopHissing( inputdata_t &inputdata );
-#endif
 
 	// Think(s)
 	void				HeadcrabCanisterSkyboxThink( void );
@@ -155,9 +152,6 @@ private:
 	COutputEHANDLE m_OnLaunched;
 	COutputEvent m_OnImpacted;
 	COutputEvent m_OnOpened;
-#ifdef MAPBASE
-	COutputEHANDLE m_OnCrab;
-#endif
 
 	// Only for skybox only cannisters.
 	float m_flMinRefireTime;
@@ -207,17 +201,11 @@ BEGIN_DATADESC( CEnvHeadcrabCanister )
 	DEFINE_INPUTFUNC( FIELD_VOID, "OpenCanister", InputOpenCanister ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "SpawnHeadcrabs", InputSpawnHeadcrabs ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "StopSmoke", InputStopSmoke ),
-#ifdef MAPBASE
-	DEFINE_INPUTFUNC( FIELD_VOID, "StopHissing", InputStopHissing ),
-#endif
 
 	// Outputs
 	DEFINE_OUTPUT( m_OnLaunched, "OnLaunched" ),
 	DEFINE_OUTPUT( m_OnImpacted, "OnImpacted" ),
 	DEFINE_OUTPUT( m_OnOpened, "OnOpened" ),
-#ifdef MAPBASE
-	DEFINE_OUTPUT( m_OnCrab, "OnCrab" ),
-#endif
 
 END_DATADESC()
 
@@ -557,17 +545,6 @@ void CEnvHeadcrabCanister::InputStopSmoke( inputdata_t &inputdata )
 	}
 }
 
-#ifdef MAPBASE
-//-----------------------------------------------------------------------------
-// Purpose: 
-// Input  : &inputdata - 
-//-----------------------------------------------------------------------------
-void CEnvHeadcrabCanister::InputStopHissing( inputdata_t &inputdata )
-{
-	StopSound( "HeadcrabCanister.AfterLanding" );
-}
-#endif
-
 //=============================================================================
 //
 // Enumerator for swept bbox collision.
@@ -748,10 +725,6 @@ void CEnvHeadcrabCanister::HeadcrabCanisterSpawnHeadcrabThink()
 		pHeadCrab->SetLocalOrigin( vec3_origin );
 		pHeadCrab->SetLocalAngles( vec3_angle );
 		pHeadCrab->CrawlFromCanister();
-
-#ifdef MAPBASE
-		m_OnCrab.Set(pHeadCrab, pHeadCrab, this);
-#endif
 	}
 
 	if ( m_nHeadcrabCount != 0 )

@@ -147,10 +147,6 @@
 #include "fbxsystem/fbxsystem.h"
 #endif
 
-#ifdef MAPBASE_VSCRIPT
-#include "vscript_client.h"
-#endif
-
 extern vgui::IInputInternal *g_InputInternal;
 
 //=============================================================================
@@ -218,11 +214,6 @@ IEngineReplay *g_pEngineReplay = NULL;
 IEngineClientReplay *g_pEngineClientReplay = NULL;
 IReplaySystem *g_pReplay = NULL;
 #endif
-#ifdef MAPBASE
-IVEngineServer	*serverengine = NULL;
-#endif
-
-IScriptManager *scriptmanager = NULL;
 
 IHaptics* haptics = NULL;// NVNT haptics system interface singleton
 
@@ -273,8 +264,6 @@ void ProcessCacheUsedMaterials()
         materials->CacheUsedMaterials();
 	}
 }
-
-void VGui_ClearVideoPanels();
 
 // String tables
 INetworkStringTable *g_pStringTableParticleEffectNames = NULL;
@@ -344,13 +333,6 @@ static ConVar s_cl_class("cl_class", "default", FCVAR_USERINFO|FCVAR_ARCHIVE, "D
 
 #ifdef HL1MP_CLIENT_DLL
 static ConVar s_cl_load_hl1_content("cl_load_hl1_content", "0", FCVAR_ARCHIVE, "Mount the content from Half-Life: Source if possible");
-#endif
-
-#ifdef MAPBASE_RPC
-// Mapbase stuff
-extern void MapbaseRPC_Init();
-extern void MapbaseRPC_Shutdown();
-extern void MapbaseRPC_Update( int iType, const char *pMapName );
 #endif
 
 
@@ -861,12 +843,47 @@ CHLClient::CHLClient()
 }
 
 
-
 extern IGameSystem *ViewportClientSystem();
 
 
 //-----------------------------------------------------------------------------
 ISourceVirtualReality *g_pSourceVR = NULL;
+
+// Needed to add content from multiple other games
+static void MountAdditionalContent()
+{
+
+	Msg("Attempting to mount additional content.\n");
+	KeyValues *pMainFile = new KeyValues("gameinfo.txt");
+#ifndef _WINDOWS
+	// case sensitivity
+	pMainFile->LoadFromFile(filesystem, "GameInfo.txt", "MOD");
+	if (!pMainFile)
+#endif
+	pMainFile->LoadFromFile(filesystem, "gameinfo.txt", "MOD");
+
+	if (pMainFile)
+	{
+		KeyValues* pFileSystemInfo = pMainFile->FindKey("FileSystem");
+		if (pFileSystemInfo)
+			for (KeyValues *pKey = pFileSystemInfo->GetFirstSubKey(); pKey; pKey = pKey->GetNextKey())
+			{
+				if (strcmp(pKey->GetName(), "AdditionalContentId") == 0)
+				{
+					int appid = abs(pKey->GetInt());
+					if (appid) {
+						Msg( "Mounting content from appid %d", appid );
+						if (appid == 220) 
+							filesystem->AddSearchPath( "hl2", "GAME" );
+						if (filesystem->MountSteamContent( -appid ) != FILESYSTEM_MOUNT_OK)
+							Msg( "Unable to mount extra content with appId: %i\n", appid );
+					}
+				}
+			}
+	}
+	pMainFile->deleteThis();
+}
+
 
 // Purpose: Called when the DLL is first loaded.
 // Input  : engineFactory - 
@@ -925,7 +942,7 @@ int CHLClient::Init( CreateInterfaceFn appSystemFactory, CreateInterfaceFn physi
 		return false;
 	if ( (enginesound = (IEngineSound *)appSystemFactory(IENGINESOUND_CLIENT_INTERFACE_VERSION, NULL)) == NULL )
 		return false;
-	if ( (filesystem = (IFileSystem *)appSystemFactory(FILESYSTEM_INTERFACE_VERSION, NULL)) == NULL )
+	if ((filesystem = (IFileSystem *)appSystemFactory( FILESYSTEM_INTERFACE_VERSION, NULL )) == NULL)
 		return false;
 	if ( (random = (IUniformRandomStream *)appSystemFactory(VENGINE_CLIENT_RANDOM_INTERFACE_VERSION, NULL)) == NULL )
 		return false;
@@ -955,27 +972,8 @@ int CHLClient::Init( CreateInterfaceFn appSystemFactory, CreateInterfaceFn physi
 		return false;
 #endif
 
-#ifdef MAPBASE
-	// Implements the server engine interface on the client.
-	// I'm extremely confused as to how this is even possible, but Saul Rennison's worldlight did it.
-	// If it's really this possible, why wasn't it available before?
-	// Hopefully there's no SP-only magic going on here, because I want to use this for RPC.
-	if ( (serverengine = (IVEngineServer*)appSystemFactory(INTERFACEVERSION_VENGINESERVER, NULL )) == NULL )
-		return false;
-#endif
-
 	if (!g_pMatSystemSurface)
 		return false;
-
-	if ( !CommandLine()->CheckParm( "-noscripting") )
-	{
-		scriptmanager = (IScriptManager *)appSystemFactory( VSCRIPT_INTERFACE_VERSION, NULL );
-
-		if (scriptmanager == nullptr)
-		{
-			scriptmanager = (IScriptManager*)Sys_GetFactoryThis()(VSCRIPT_INTERFACE_VERSION, NULL);
-		}
-	}
 
 #ifdef WORKSHOP_IMPORT_ENABLED
 	if ( !ConnectDataModel( appSystemFactory ) )
@@ -998,6 +996,9 @@ int CHLClient::Init( CreateInterfaceFn appSystemFactory, CreateInterfaceFn physi
 	{
 		return false;
 	}
+
+	MountAdditionalContent();
+
 
 	if ( CommandLine()->FindParm( "-textmode" ) )
 		g_bTextMode = true;
@@ -1110,9 +1111,6 @@ int CHLClient::Init( CreateInterfaceFn appSystemFactory, CreateInterfaceFn physi
 	g_pGameSaveRestoreBlockSet->AddBlockHandler( GetEntitySaveRestoreBlockHandler() );
 	g_pGameSaveRestoreBlockSet->AddBlockHandler( GetPhysSaveRestoreBlockHandler() );
 	g_pGameSaveRestoreBlockSet->AddBlockHandler( GetViewEffectsRestoreBlockHandler() );
-#ifdef MAPBASE_VSCRIPT
-	g_pGameSaveRestoreBlockSet->AddBlockHandler( GetVScriptSaveRestoreBlockHandler() );
-#endif
 
 	ClientWorldFactoryInit();
 
@@ -1124,14 +1122,6 @@ int CHLClient::Init( CreateInterfaceFn appSystemFactory, CreateInterfaceFn physi
 #endif
 #ifndef _X360
 	HookHapticMessages(); // Always hook the messages
-#endif
-
-#ifdef MAPBASE_RPC
-	MapbaseRPC_Init();
-#endif
-
-#ifdef MAPBASE
-	CommandLine()->AppendParm( "+r_hunkalloclightmaps", "0" );
 #endif
 
 	return true;
@@ -1219,17 +1209,12 @@ void CHLClient::Shutdown( void )
 	g_pSixenseInput = NULL;
 #endif
 
-	VGui_ClearVideoPanels();
-
 	C_BaseAnimating::ShutdownBoneSetupThreadPool();
 	ClientWorldFactoryShutdown();
 
 	g_pGameSaveRestoreBlockSet->RemoveBlockHandler( GetViewEffectsRestoreBlockHandler() );
 	g_pGameSaveRestoreBlockSet->RemoveBlockHandler( GetPhysSaveRestoreBlockHandler() );
 	g_pGameSaveRestoreBlockSet->RemoveBlockHandler( GetEntitySaveRestoreBlockHandler() );
-#ifdef MAPBASE_VSCRIPT
-	g_pGameSaveRestoreBlockSet->RemoveBlockHandler( GetVScriptSaveRestoreBlockHandler() );
-#endif
 
 	ClientVoiceMgr_Shutdown();
 
@@ -1262,10 +1247,6 @@ void CHLClient::Shutdown( void )
 	ShutdownDataModel();
 	DisconnectDataModel();
 	ShutdownFbx();
-#endif
-
-#ifdef MAPBASE_RPC
-	MapbaseRPC_Shutdown();
 #endif
 	
 	// This call disconnects the VGui libraries which we rely on later in the shutdown path, so don't do it
@@ -1649,10 +1630,6 @@ void CHLClient::LevelInitPreEntity( char const* pMapName )
 	tempents->LevelInit();
 	ResetToneMapping(1.0);
 
-#ifdef MAPBASE
-	GetClientWorldEntity()->ParseWorldMapData( engine->GetMapEntitiesString() );
-#endif
-
 	IGameSystem::LevelInitPreEntityAllSystems(pMapName);
 
 #ifdef USES_ECON_ITEMS
@@ -1681,13 +1658,6 @@ void CHLClient::LevelInitPreEntity( char const* pMapName )
 		{
 			engine->ClientCmd( "cl_predict 0" );
 		}
-	}
-#endif
-
-#ifdef MAPBASE_RPC
-	if (!g_bTextMode)
-	{
-		MapbaseRPC_Update(RPCSTATE_LEVEL_INIT, pMapName);
 	}
 #endif
 
@@ -1781,13 +1751,6 @@ void CHLClient::LevelShutdown( void )
 	StopAllRumbleEffects();
 
 	gHUD.LevelShutdown();
-
-#ifdef MAPBASE_RPC
-	if (!g_bTextMode)
-	{
-		MapbaseRPC_Update(RPCSTATE_LEVEL_SHUTDOWN, NULL);
-	}
-#endif
 
 	internalCenterPrint->Clear();
 
@@ -2219,9 +2182,7 @@ void OnRenderStart()
 	// are at the correct location
 	view->OnRenderStart();
 
-#ifndef MAPBASE
 	RopeManager()->OnRenderStart();
-#endif
 	
 	// This will place all entities in the correct position in world space and in the KD-tree
 	C_BaseAnimating::UpdateClientSideAnimations();

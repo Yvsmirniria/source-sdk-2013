@@ -35,6 +35,8 @@ void CHudVehicle::ApplySchemeSettings( IScheme *scheme )
 {
 	BaseClass::ApplySchemeSettings( scheme );
 
+	SetSize( ScreenWidth(), ScreenHeight() );
+
 	SetPaintBackgroundEnabled( false );
 	SetForceStereoRenderToFrameBuffer( true );
 }

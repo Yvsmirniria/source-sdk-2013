@@ -64,6 +64,16 @@ extern ConVar sv_vehicle_autoaim_scale;
 #define CANNON_HEAVY_SHOT_INTERVAL	0.2f
 #define CANNON_SHAKE_INTERVAL		1.0f
 
+// Keep same as in c_vehicle_airboat.cpp !
+#define AIRBOAT_ROCKETS 8
+
+#define AB_ROCKET_RECHARGE_TIME 1.0f
+#define AB_ROCKET_TARGET_TIME 0.25f
+#define AB_ROCKET_FIRE_INTVAL 0.075f
+
+static ConVar sv_airboat_rocket_range( "sv_airboat_rocket_range", "4000" );
+static ConVar sv_ab_rocket_launch_z( "sv_ab_rocket_launch_z", "100" );
+
 static ConVar sk_airboat_max_ammo("sk_airboat_max_ammo", "100" );
 static ConVar sk_airboat_recharge_rate("sk_airboat_recharge_rate", "15" );
 static ConVar sk_airboat_drain_rate("sk_airboat_drain_rate", "10" );
@@ -87,6 +97,7 @@ public:
 	void			DampenEyePosition( Vector &vecVehicleEyePos, QAngle &vecVehicleEyeAngles );
 	bool			ShouldThink() { return true; }
 
+	void            CancelTarget( int nIndex );
 	// CBaseEntity
 	void			Think(void);
 	void			Precache( void );
@@ -152,6 +163,8 @@ public:
 
 private:
 
+	
+
 	void			CreateAntiFlipConstraint();
 
 	void			ApplyStressDamage( IPhysicsObject *pPhysics );
@@ -181,6 +194,12 @@ private:
 	
 	// Do the right thing for the gun
 	void			UpdateGunState( CUserCmd *ucmd );
+	// Ditto rockets
+	void            UpdateRocketState( CUserCmd *ucmd, int iButtonsReleased );
+	void            FireRocketAt(CBaseEntity* target);
+    bool            FindRocketTarget( EHANDLE &entTarget );
+	bool            IsRocketTarget( CBaseEntity* ent );
+	void            QueueAllRockets();
 
 	// Sound management
 	void			CreateSounds();
@@ -205,6 +224,12 @@ private:
 		GUN_STATE_FIRING,
 	};
 
+	enum {
+		AB_ROCKET_IDLE = 0,
+		AB_ROCKET_TARGETING,
+		AB_ROCKET_FIRING
+	};
+
 	Vector			m_vecLastEyePos;
 	Vector			m_vecLastEyeTarget;
 	Vector			m_vecEyeSpeed;
@@ -221,6 +246,18 @@ private:
 	float			m_flChargeRemainder;
 	float			m_flDrainRemainder;
 	int				m_nGunState;
+
+	// ROCKET STUFF
+	int             m_nRocketState;
+	float           m_flRocketTime; // time of last rocket aimed/fired
+	float           m_flRocketGenTime; // time of last rocket regenerated
+
+	CNetworkVar(int, m_nRocketsReady);
+	CNetworkVar( int, m_nRocketsQueued);
+	CNetworkArray( EHANDLE, m_hRocketTargets, AIRBOAT_ROCKETS );
+
+
+
 	float			m_flNextHeavyShotTime;
 	float			m_flNextGunShakeTime;
 
@@ -259,6 +296,7 @@ private:
 	CHandle<CEntityBlocker>	m_hPlayerBlocker;
 	
 	CNetworkVar( Vector, m_vecPhysVelocity );
+	CNetworkVar( float, m_flVelocity );
 
 	CNetworkVar( int, m_nExactWaterLevel );
 
@@ -272,6 +310,10 @@ IMPLEMENT_SERVERCLASS_ST( CPropAirboat, DT_PropAirboat )
 	SendPropInt( SENDINFO( m_nExactWaterLevel ) ),
 	SendPropInt( SENDINFO( m_nWaterLevel ) ),
 	SendPropVector( SENDINFO( m_vecPhysVelocity ) ),
+	SendPropFloat( SENDINFO( m_flVelocity ) ),
+	SendPropInt( SENDINFO( m_nRocketsReady ) ),
+	SendPropInt( SENDINFO( m_nRocketsQueued ) ),
+	SendPropArray3( SENDINFO_ARRAY3( m_hRocketTargets ), SendPropEHandle( SENDINFO_ARRAY( m_hRocketTargets ) ) )
 END_SEND_TABLE();
 
 LINK_ENTITY_TO_CLASS( prop_vehicle_airboat, CPropAirboat );
@@ -290,6 +332,11 @@ BEGIN_DATADESC( CPropAirboat )
 	DEFINE_FIELD( m_flChargeRemainder,	FIELD_FLOAT ),
 	DEFINE_FIELD( m_flDrainRemainder,	FIELD_FLOAT ),
 	DEFINE_FIELD( m_nGunState,			FIELD_INTEGER ),
+	DEFINE_FIELD( m_nRocketState, FIELD_INTEGER ),
+	DEFINE_FIELD( m_flRocketTime, FIELD_FLOAT ),
+	DEFINE_FIELD( m_flRocketGenTime, FIELD_FLOAT ),
+	DEFINE_FIELD( m_nRocketsQueued, FIELD_INTEGER ),
+	DEFINE_FIELD( m_nRocketsReady, FIELD_INTEGER ),
 	DEFINE_FIELD( m_flNextHeavyShotTime, FIELD_TIME ),
 	DEFINE_FIELD( m_flNextGunShakeTime, FIELD_TIME ),
 	DEFINE_FIELD( m_nAmmoCount,			FIELD_INTEGER ),
@@ -363,8 +410,12 @@ void CPropAirboat::Precache( void )
 
 	PrecacheScriptSound( "Airboat.FireGunLoop" );
 
+	PrecacheScriptSound( "Buttons.snd15" );
+
 	PrecacheMaterial( "effects/splashwake1" );
 	PrecacheMaterial( "effects/splashwake4" );
+
+	UTIL_PrecacheOther( "homing_missile" );
 }
 
 
@@ -746,6 +797,12 @@ void CPropAirboat::ExitVehicle( int nRole )
 	controller.SoundChangeVolume( m_pWaterStoppedSound, 0.0, 0.0 );
 	controller.SoundChangeVolume( m_pWaterFastSound, 0.0, 0.0 );
 	controller.SoundChangeVolume( m_pGunFiringSound, 0.0, 0.0 );
+
+	// Clear the rocket targets 
+	for (int i = 0; i < AIRBOAT_ROCKETS; i++) {
+		m_hRocketTargets.Set( i, NULL );
+		m_nRocketsQueued = 0;
+	}
 }
 
 
@@ -1573,8 +1630,6 @@ void CPropAirboat::FireGun( )
 	Vector vecForward;
 	GetAttachment( m_nGunBarrelAttachment, vecGunPosition, &vecForward );
 	
-	CDisablePredictionFiltering disabler;
-
 	// NOTE: For the airboat, unable to fire really means the aim is clamped
 	Vector vecAimPoint;
 	if ( !m_bUnableToFire )
@@ -1768,6 +1823,276 @@ void CPropAirboat::UpdateGunState( CUserCmd *ucmd )
 	}
 }
 
+bool CPropAirboat::IsRocketTarget( CBaseEntity* ent )
+{
+	for (int i = 0; i < AIRBOAT_ROCKETS; i++) {
+
+		if (m_hRocketTargets[i].Get() == ent)
+			return true;
+	}
+	return false;
+}
+
+void CPropAirboat::CancelTarget( int nIndex )
+{
+	m_hRocketTargets.Set( nIndex, NULL );
+}
+
+void CPropAirboat::QueueAllRockets()
+{
+	int lastQueued = m_nRocketsQueued - 1;
+	if (m_hRocketTargets[lastQueued]) {
+		for (; m_nRocketsQueued < m_nRocketsReady; m_nRocketsQueued++) {
+			m_hRocketTargets.Set( m_nRocketsQueued, m_hRocketTargets[lastQueued] );
+		}
+	}
+}
+
+bool CPropAirboat::FindRocketTarget( EHANDLE &Target )
+{
+	// Need to search the whole list so we 
+	// can exclude multiple entities already targeted
+	const CEntInfo *pInfo = g_pEntityList->FirstEntInfo();
+	const bool debug = false;
+	for (; pInfo; pInfo = pInfo->m_pNext)
+	{
+		CBaseEntity* ent = dynamic_cast<CBaseEntity*>(pInfo->m_pEntity);
+
+		// Looking for an entity that:
+		//  * is within cone of player vision (finite range)
+		//  * is an npc (classname matches npc_*), or chopper bomb or 
+		//    apc or apc missile
+		//  * is not the player or a player ally
+		//  * is not already targeted
+		// Do the fastest checks first so we only do the slower checks if we have to
+
+		// if already targeted
+
+		if (debug)
+			Msg( "\nConsidering a %s,", ent->GetClassname() );
+
+		// if not the kind of entity we want to target
+		CBaseCombatCharacter* tgt = ToBaseCombatCharacter( ent );
+		bool bcc = false;
+		if (tgt)
+			bcc = true;
+
+		if (bcc && debug)
+			Msg( "It's a basecombatcharacter alright...\n" );
+		if (!(bcc ||
+			ent->ClassMatches( "prop_vehicle_apc" ) ||
+			ent->ClassMatches( "grenade_helicopter" ) ||
+			ent->ClassMatches( "npc_gunship" ) ||
+			ent->ClassMatches( "npc_cscanner" ) ||
+			ent->Classify() == CLASS_COMBINE) ) 
+		{
+			continue;
+		}
+
+
+		if (debug)
+			Msg( "\nSofarsogood\n" );
+
+		// special exclusions
+		if ( ent->ClassMatches( "player" ) ||
+			 ent->ClassMatches( "npc_heli_*" ) ||
+			 ent->ClassMatches( "npc_bullseye*" ) ||
+			 ent->ClassMatches( "bullseye_strider_focus" ) ||
+			 ent->ClassMatches( "npc_helicoptersensor" ) ||
+			 ent->ClassMatches( "helicopter_chunk" ) )
+		{
+			continue;
+		}
+
+		// if friendly
+		if ( !UTIL_IsPlayerEnemy( ent ) )   
+		{
+			continue;
+		}
+
+		if (debug)
+            Msg( "not ally,\n" );
+
+		if (!ent->ClassMatches( "prop_vehicle_apc" ) &&
+			!ent->IsAlive())
+		{
+			continue;
+		}
+
+		// Don't target anything the rocket can't collide with
+		if (!ent->IsSolid())
+		{
+			continue;
+		}
+
+		if (debug)
+			Msg( "either alive or APC," );
+
+		// if already targeted
+		if (IsRocketTarget( ent ))
+			continue;
+
+		// Okay, this is the kind of thing we want to target. 
+		// Is it in the targeting cone?
+		CBasePlayer* player = dynamic_cast<CBasePlayer*>( GetDriver() );
+		if ( !player || !player->FInViewCone( ent ) )
+		{
+			continue;
+		}
+
+		if (debug)
+			Msg( "in view,\n" );
+
+		// Distance check
+		Vector a = ent->GetAbsOrigin();
+		Vector b = GetAbsOrigin();
+		if (a.IsValid() && b.IsValid() &&
+			a.DistTo( b ) > sv_airboat_rocket_range.GetFloat())
+			continue;
+
+
+        // Finally check if we have line of sight.
+		// This always returns false for APC missiles for some reason.
+		CBaseEntity** pBlocker = 0;
+		if (!player->FVisible( ent, MASK_VISIBLE, pBlocker ) )
+		{
+			continue;
+		}
+
+		if (debug)
+			Msg( "visible\n" );
+		// Looks like we have a target
+		Target = ent;
+
+		float flDuration;
+		EmitSound( "Buttons.snd15_softer", 0.0, &flDuration );
+		return true;
+	}
+	return false;
+}
+
+void CPropAirboat::FireRocketAt( CBaseEntity* target )
+{
+
+	Vector launch_pos = GetAbsOrigin() + Vector( 0, 0, sv_ab_rocket_launch_z.GetFloat() );
+	QAngle launch_angle = GetAbsAngles();
+	launch_angle[PITCH] = clamp( launch_angle[PITCH], 0, 60 );
+	launch_angle[YAW] += 90; // compensate for rotated vehicle
+
+	CHomingMissile* missile = 
+		CHomingMissile::Create( launch_pos, launch_angle, this, target, m_nRocketsQueued-1 );
+
+	if ( target )
+	{
+		//Msg( "Aiming rocket at %s", target->GetClassname() );
+		missile->IgniteThink();
+		missile->SeekThink();
+	}
+}
+
+void CPropAirboat::UpdateRocketState( CUserCmd *ucmd, int iButtonsReleased )
+{
+	// button-down, start targeting
+	if ( ucmd->buttons & IN_ATTACK2 )
+	{
+		if ( m_nRocketState == AB_ROCKET_IDLE )
+		{
+			m_nRocketState = AB_ROCKET_TARGETING;
+			// set time so it takes time to acquire the first target
+			m_flRocketTime = gpGlobals->curtime; 
+			//Msg( "Targeting Rockets...\n" );
+		}
+	} // button-up, start firing
+	else if ( iButtonsReleased & IN_ATTACK2 ) {
+		if (m_nRocketState == AB_ROCKET_TARGETING) {
+			m_nRocketState = AB_ROCKET_FIRING;
+			// set time so the rockets start firing instantly
+			m_flRocketTime = 0;
+			//Msg( "Firing Rockets...\n" );
+		}
+	}
+	// regenerate rockets 
+	if (m_nRocketsReady < AIRBOAT_ROCKETS &&
+		m_flRocketGenTime + AB_ROCKET_RECHARGE_TIME < gpGlobals->curtime)
+	{
+		m_nRocketsReady++;
+		m_flRocketGenTime = gpGlobals->curtime;
+		//Msg( "New rocket regenerated (%d now)\n", m_nRocketsReady );
+	}
+
+	switch ( m_nRocketState ) {
+	case ( AB_ROCKET_TARGETING ) :
+		// check timer, try to acquire target if it's time
+		if (gpGlobals->curtime > m_flRocketTime + AB_ROCKET_TARGET_TIME &&
+				m_nRocketsQueued < m_nRocketsReady &&
+				m_nRocketsReady > 0) {
+
+			// Try to acquire next target
+			EHANDLE hTarget;
+			
+			if (FindRocketTarget( hTarget ))
+			{
+				CBaseEntity* target = hTarget.Get();
+				if (target)
+				{
+					//Msg( "\nValidTarget\n" );
+					// For now pretend we acquired a target
+					EHANDLE hTarget = target;
+					m_hRocketTargets.Set(m_nRocketsQueued, hTarget);
+					m_nRocketsQueued++;
+					//Msg( "Rocket Target (%s) Acquired...(%d now)\n",
+					//	target->GetClassname(), m_nRocketsQueued );
+					m_flRocketTime = gpGlobals->curtime;
+				}
+				
+			}
+		}
+        // Support queueing all remaining rockets with the reload button
+		if (ucmd->buttons & IN_RELOAD &&
+				m_nRocketsQueued > 0 &&
+				m_nRocketsReady > m_nRocketsQueued) {
+
+			QueueAllRockets();
+		}
+
+		break;
+	case ( AB_ROCKET_FIRING ) :
+		// check timer, fire rocket if it's time and targets in queue
+		if (m_nRocketsQueued > 0) {
+			if (gpGlobals->curtime > m_flRocketTime + AB_ROCKET_FIRE_INTVAL) {
+				// Time to fire a rocket
+				EHANDLE hTarget = m_hRocketTargets[m_nRocketsQueued - 1];
+				CBaseEntity* target = hTarget.Get();
+
+				if (target) {
+					//Msg( "Firing Rocket at %s...\n", target->GetClassname() );
+					FireRocketAt( target );
+					m_nRocketsReady--;
+				}	
+
+				// if no target, skip
+				m_nRocketsQueued--;
+				
+				m_flRocketTime = gpGlobals->curtime;
+				if (m_nRocketsQueued <= 0) {
+					m_nRocketState = AB_ROCKET_IDLE;
+
+					//Msg( "All Queued Rockets Fired.\n" );
+				}
+				// Stop regenerating rockets while firing
+				m_flRocketGenTime = gpGlobals->curtime;
+			}
+		}
+		else {
+			m_nRocketState = AB_ROCKET_IDLE;
+			//Msg( "No Targets.\n" );
+		}
+		break;
+	default: break;
+	}
+
+}
+
 
 //-----------------------------------------------------------------------------
 // Purpose: 
@@ -1791,6 +2116,8 @@ void CPropAirboat::DriveVehicle( float flFrameTime, CUserCmd *ucmd, int iButtons
 	{
 		UpdateGunState( ucmd );
 	}
+	// Handle rockets
+	UpdateRocketState( ucmd, iButtonsReleased );
 
 	m_VehiclePhysics.UpdateDriverControls( ucmd, TICK_INTERVAL );
 

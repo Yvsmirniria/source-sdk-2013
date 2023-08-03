@@ -29,9 +29,6 @@ class C_BaseCombatCharacter : public C_BaseFlex
 public:
 	DECLARE_CLIENTCLASS();
 	DECLARE_PREDICTABLE();
-#ifdef MAPBASE_VSCRIPT
-	DECLARE_ENT_SCRIPTDESC();
-#endif
 
 					C_BaseCombatCharacter( void );
 	virtual			~C_BaseCombatCharacter( void );
@@ -62,7 +59,6 @@ public:
 	};
 	virtual bool IsLineOfSightClear( CBaseEntity *entity, LineOfSightCheckType checkType = IGNORE_NOTHING ) const;// strictly LOS check with no other considerations
 	virtual bool IsLineOfSightClear( const Vector &pos, LineOfSightCheckType checkType = IGNORE_NOTHING, CBaseEntity *entityToIgnore = NULL ) const;
-
 
 	// -----------------------
 	// Ammo
@@ -101,12 +97,6 @@ public:
 	CGlowObject			*GetGlowObject( void ){ return m_pGlowEffect; }
 	virtual void		GetGlowEffectColor( float *r, float *g, float *b );
 #endif // GLOWS_ENABLE
-
-#ifdef MAPBASE_VSCRIPT
-	int					ScriptGetAmmoCount( int i );
-	HSCRIPT				ScriptGetActiveWeapon();
-	HSCRIPT				ScriptGetWeapon( int i );
-#endif
 
 public:
 

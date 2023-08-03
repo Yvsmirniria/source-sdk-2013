@@ -18,10 +18,10 @@
 #include "IEffects.h"
 #include "props.h"
 
-#include "point_template.h"
-
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
+
+ConVar sv_extra_enemies( "sv_extra_enemies", "0", FCVAR_REPLICATED, "Enemy spawners spawn this many extra enemies" );
 
 static void DispatchActivate( CBaseEntity *pEntity )
 {
@@ -116,8 +116,6 @@ END_DATADESC()
 //-----------------------------------------------------------------------------
 void CBaseNPCMaker::Spawn( void )
 {
-	ScriptInstallPreSpawnHook();
-
 	SetSolid( SOLID_NONE );
 	m_nLiveChildren		= 0;
 	Precache();
@@ -352,6 +350,8 @@ void CBaseNPCMaker::InputSetMaxChildren( inputdata_t &inputdata )
 //-----------------------------------------------------------------------------
 void CBaseNPCMaker::InputAddMaxChildren( inputdata_t &inputdata )
 {
+	// If using sv_extra_enemies, m_nMaxNumNPCs could be negative
+	m_nMaxNumNPCs = MAX( 0, m_nMaxNumNPCs );
 	m_nMaxNumNPCs += inputdata.value.Int();
 }
 
@@ -388,6 +388,7 @@ END_DATADESC()
 CNPCMaker::CNPCMaker( void )
 {
 	m_spawnEquipment = NULL_STRING;
+
 }
 
 
@@ -568,7 +569,9 @@ BEGIN_DATADESC( CTemplateNPCMaker )
 	DEFINE_KEYFIELD( m_CriterionVisibility, FIELD_INTEGER, "CriterionVisibility" ),
 	DEFINE_KEYFIELD( m_CriterionDistance, FIELD_INTEGER, "CriterionDistance" ),
 	DEFINE_KEYFIELD( m_iMinSpawnDistance, FIELD_INTEGER, "MinSpawnDistance" ),
+	DEFINE_FIELD( m_nSpawnExtra, FIELD_INTEGER ),
 
+	DEFINE_INPUTFUNC( FIELD_VOID, "SpawnNPC", InputSpawnNPC ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "SpawnNPCInRadius", InputSpawnInRadius ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "SpawnNPCInLine", InputSpawnInLine ),
 	DEFINE_INPUTFUNC( FIELD_INTEGER, "SpawnMultiple", InputSpawnMultiple ),
@@ -577,7 +580,6 @@ BEGIN_DATADESC( CTemplateNPCMaker )
 
 END_DATADESC()
 
-
 //-----------------------------------------------------------------------------
 // A hook that lets derived NPC makers do special stuff when precaching.
 //-----------------------------------------------------------------------------
@@ -585,7 +587,6 @@ void CTemplateNPCMaker::PrecacheTemplateEntity( CBaseEntity *pEntity )
 {
 	pEntity->Precache();
 }
-
 
 void CTemplateNPCMaker::Precache()
 {
@@ -627,6 +628,19 @@ void CTemplateNPCMaker::Precache()
 		{
 			PrecacheTemplateEntity( pEntity );
 			UTIL_RemoveImmediate( pEntity );
+
+			// Spawn some extra enemies
+			if ((pEntity->ClassMatches( "npc_metropolice" ) ||
+				pEntity->ClassMatches( "npc_combine_s" ) ||
+				pEntity->ClassMatches( "npc_combine" ) ||
+				pEntity->ClassMatches( "npc_zombie" ) ||
+				pEntity->ClassMatches( "npc_antlion" )) &&
+				sv_extra_enemies.GetInt() > 0 )
+			{
+				m_flSpawnFrequency = MIN( 2.0, m_flSpawnFrequency );
+				m_nSpawnExtra = sv_extra_enemies.GetInt();
+				m_nMaxLiveChildren += m_nSpawnExtra;
+			}
 		}
 	}
 }
@@ -772,16 +786,29 @@ CNPCSpawnDestination *CTemplateNPCMaker::FindSpawnDestination()
 }
 
 //-----------------------------------------------------------------------------
+// Purpose: Input handler that spawns an NPC.
+//-----------------------------------------------------------------------------
+void CTemplateNPCMaker::InputSpawnNPC( inputdata_t &inputdata )
+{
+	BaseClass::InputSpawnNPC( inputdata );
+	if (m_nSpawnExtra && !(m_spawnflags & SF_NPCMAKER_INF_CHILD))
+	{
+		Enable();
+	}
+}
+
+//-----------------------------------------------------------------------------
 // Purpose: 
 //-----------------------------------------------------------------------------
 void CTemplateNPCMaker::MakeNPC( void )
 {
 	// If we should be using the radius spawn method instead, do so
-	if ( m_flRadius && HasSpawnFlags(SF_NPCMAKER_ALWAYSUSERADIUS) )
+	if (m_flRadius && HasSpawnFlags( SF_NPCMAKER_ALWAYSUSERADIUS ))
 	{
 		MakeNPCInRadius();
 		return;
 	}
+
 
 	if (!CanMakeNPC( ( m_iszDestinationGroup != NULL_STRING ) ))
 		return;
@@ -834,12 +861,6 @@ void CTemplateNPCMaker::MakeNPC( void )
 		pent->SetAbsAngles( angles );
 	}
 
-	if ( !ScriptPreInstanceSpawn( &m_ScriptScope, pEntity, m_iszTemplateData ) )
-	{
-		UTIL_RemoveImmediate( pEntity );
-		return;
-	}
-
 	m_OnSpawnNPC.Set( pEntity, pEntity, this );
 
 	if ( m_spawnflags & SF_NPCMAKER_FADE )
@@ -863,7 +884,7 @@ void CTemplateNPCMaker::MakeNPC( void )
 	ChildPostSpawn( pent );
 
 	m_nLiveChildren++;// count this NPC
-
+	
 	if (!(m_spawnflags & SF_NPCMAKER_INF_CHILD))
 	{
 		m_nMaxNumNPCs--;
@@ -876,9 +897,14 @@ void CTemplateNPCMaker::MakeNPC( void )
 			SetThink( NULL );
 			SetUse( NULL );
 		}
-	}
+		else if (m_nSpawnExtra > 0 && m_nMaxNumNPCs <= 0) {
+			// Spawned all our "official" NPCs,
+			// Now spawn the extras all at once
+			m_flRadius = MAX( m_flRadius, 50 );
+			MakeMultipleNPCS( m_nSpawnExtra );
 
-	ScriptPostSpawn( &m_ScriptScope, &pEntity, 1 );
+		}
+	}
 }
 
 //-----------------------------------------------------------------------------
@@ -918,7 +944,6 @@ void CTemplateNPCMaker::MakeNPCInLine( void )
 	ChildPostSpawn( pent );
 
 	m_nLiveChildren++;// count this NPC
-
 	if (!(m_spawnflags & SF_NPCMAKER_INF_CHILD))
 	{
 		m_nMaxNumNPCs--;
@@ -930,6 +955,14 @@ void CTemplateNPCMaker::MakeNPCInLine( void )
 			// Disable this forever.  Don't kill it because it still gets death notices
 			SetThink( NULL );
 			SetUse( NULL );
+		}
+		else if ( m_nSpawnExtra > 0 && m_nMaxNumNPCs <= 0 )
+		{
+			// Spawned all our "official" NPCs,
+			// Now spawn the extras all at once
+			m_flRadius = MAX( m_flRadius, 50 );
+			MakeMultipleNPCS( m_nSpawnExtra );
+
 		}
 	}
 }
@@ -1032,6 +1065,7 @@ void CTemplateNPCMaker::MakeNPCInRadius( void )
 			SetThink( NULL );
 			SetUse( NULL );
 		}
+		
 	}
 }
 
@@ -1060,7 +1094,7 @@ bool CTemplateNPCMaker::PlaceNPCInRadius( CAI_BaseNPC *pNPC )
 void CTemplateNPCMaker::MakeMultipleNPCS( int nNPCs )
 {
 	bool bInRadius = ( m_iszDestinationGroup == NULL_STRING && m_flRadius > 0.1 );
-	while ( nNPCs-- )
+	while ( nNPCs-- && !IsDepleted() )
 	{
 		if ( !bInRadius )
 		{
@@ -1092,4 +1126,31 @@ void CTemplateNPCMaker::InputChangeDestinationGroup( inputdata_t &inputdata )
 void CTemplateNPCMaker::InputSetMinimumSpawnDistance( inputdata_t &inputdata )
 {
 	m_iMinSpawnDistance = inputdata.value.Int();
+}
+
+void CTemplateNPCMaker::ChildPostSpawn( CAI_BaseNPC *pChild )
+{
+    BaseClass::ChildPostSpawn( pChild );
+
+	// if pChild is one of the extra NPCs, 
+	// remove any OnDeath outputs from it
+	if ( m_nMaxNumNPCs <= 0 )
+	{
+		// Remove OnDeath outputs so that the extra enemies don't interfere with 
+		// counters and scene logic
+		pChild->m_OnDeath.DeleteAllElements();
+		// For completeness should probably do all the other output events but haven't 
+		// noticed any other problems
+
+		pChild->m_hDamageFilter = NULL; // Don't want our "extra" soldiers to be invulnerable.
+		                                // Which did happen in the "cheese room" in d3_c17_10b.
+	} 
+}
+
+bool CTemplateNPCMaker::IsDepleted()
+{
+	if ((m_spawnflags & SF_NPCMAKER_INF_CHILD) || m_nMaxNumNPCs + m_nSpawnExtra > 0)
+		return false;
+
+	return true;
 }

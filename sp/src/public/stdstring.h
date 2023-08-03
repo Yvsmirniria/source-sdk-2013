@@ -70,15 +70,6 @@ public:
 		std::string *pString = (std::string *)fieldInfo.pField;
 		return pString->empty();
 	}
-
-#ifdef MAPBASE
-	virtual bool Parse( const SaveRestoreFieldInfo_t &fieldInfo, char const* szValue )
-	{
-		std::string *pString = (std::string *)fieldInfo.pField;
-		pString->assign(szValue);
-		return true;
-	}
-#endif
 };
 
 //-------------------------------------
@@ -93,10 +84,5 @@ inline ISaveRestoreOps *GetStdStringDataOps()
 
 #define DEFINE_STDSTRING(name) \
 	{ FIELD_CUSTOM, #name, { offsetof(classNameTypedef,name), 0 }, 1, FTYPEDESC_SAVE, NULL, GetStdStringDataOps(), NULL }
-
-#ifdef MAPBASE
-#define DEFINE_KEYSTDSTRING(name,mapname) \
-	{ FIELD_CUSTOM, #name, { offsetof(classNameTypedef, name), 0 }, 1, FTYPEDESC_SAVE | FTYPEDESC_KEY, mapname, GetStdStringDataOps(), NULL }
-#endif
 
 #endif // STDSTRING_H

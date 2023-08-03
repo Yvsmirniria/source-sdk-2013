@@ -103,6 +103,10 @@ public:
 	void InputUnlock( inputdata_t &inputdata );
 	void InputSetSpeed( inputdata_t &inputdata );
 
+	// MobMod HACKHACK to force certain doors open
+	void ForceUnlock( inputdata_t &inputdata ) { InputUnlock( inputdata ); }
+	void ForceOpen( inputdata_t &inputdata ) { InputOpen( inputdata ); }
+
 	Vector m_vecMoveDir;		// The direction of motion for linear moving doors.
 
 	locksound_t m_ls;			// door lock sounds

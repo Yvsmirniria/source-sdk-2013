@@ -167,15 +167,8 @@ private:
 	float	m_flSuperFastAttackTime;
 	float   m_flGrenadePullTime;
 	
-#ifdef MAPBASE
-	int		m_iGrenadeCount = ZOMBINE_MAX_GRENADES;
-#else
 	int		m_iGrenadeCount;
-#endif
 
-#ifdef MAPBASE
-	COutputEHANDLE m_OnGrenade;
-#endif
 	EHANDLE	m_hGrenade;
 
 protected:
@@ -191,12 +184,7 @@ BEGIN_DATADESC( CNPC_Zombine )
 	DEFINE_FIELD( m_flSuperFastAttackTime, FIELD_TIME ),
 	DEFINE_FIELD( m_hGrenade, FIELD_EHANDLE ),
 	DEFINE_FIELD( m_flGrenadePullTime, FIELD_TIME ),
-#ifdef MAPBASE
-	DEFINE_KEYFIELD( m_iGrenadeCount, FIELD_INTEGER, "NumGrenades" ),
-	DEFINE_OUTPUT( m_OnGrenade, "OnPullGrenade" ),
-#else
 	DEFINE_FIELD( m_iGrenadeCount, FIELD_INTEGER ),
-#endif
 	DEFINE_INPUTFUNC( FIELD_VOID,	"StartSprint", InputStartSprint ),
 	DEFINE_INPUTFUNC( FIELD_VOID,	"PullGrenade", InputPullGrenade ),
 END_DATADESC()
@@ -213,9 +201,7 @@ void CNPC_Zombine::Spawn( void )
 	Precache();
 
 	m_fIsTorso = false;
-#ifndef MAPBASE // Controlled by KV
 	m_fIsHeadless = false;
-#endif
 	
 #ifdef HL2_EPISODIC
 	SetBloodColor( BLOOD_COLOR_ZOMBIE );
@@ -240,9 +226,7 @@ void CNPC_Zombine::Spawn( void )
 	g_flZombineGrenadeTimes = gpGlobals->curtime;
 	m_flGrenadePullTime = gpGlobals->curtime;
 
-#ifndef MAPBASE
 	m_iGrenadeCount = ZOMBINE_MAX_GRENADES;
-#endif
 }
 
 void CNPC_Zombine::Precache( void )
@@ -405,63 +389,63 @@ void CNPC_Zombine::GatherGrenadeConditions( void )
 
 	if ( m_flSuperFastAttackTime >= gpGlobals->curtime )
 		return;
-	
-	if ( HasGrenade() )
-		return;
 
-	if ( GetEnemy() == NULL )
-		return;
+if (HasGrenade())
+return;
 
-	if ( FVisible( GetEnemy() ) == false )
-		return;
+if (GetEnemy() == NULL)
+return;
 
-	if ( IsSprinting() )
-		return;
+if (FVisible( GetEnemy() ) == false)
+return;
 
-	if ( IsOnFire() )
-		return;
-	
-	if ( IsRunningDynamicInteraction() == true )
-		return;
+if (IsSprinting())
+return;
 
-	if ( m_ActBusyBehavior.IsActive() )
-		return;
+if (IsOnFire())
+return;
 
-	CBasePlayer *pPlayer = AI_GetSinglePlayer();
+if (IsRunningDynamicInteraction() == true)
+return;
 
-	if ( pPlayer && pPlayer->FVisible( this ) )
+if (m_ActBusyBehavior.IsActive())
+return;
+
+CBasePlayer *pPlayer = AI_GetSinglePlayer();
+
+if (pPlayer && pPlayer->FVisible( this ))
+{
+	float flLengthToPlayer = (pPlayer->GetAbsOrigin() - GetAbsOrigin()).Length();
+	float flLengthToEnemy = flLengthToPlayer;
+
+	if (pPlayer != GetEnemy())
 	{
-		float flLengthToPlayer = (pPlayer->GetAbsOrigin() - GetAbsOrigin()).Length();
-		float flLengthToEnemy = flLengthToPlayer;
+		flLengthToEnemy = (GetEnemy()->GetAbsOrigin() - GetAbsOrigin()).Length();
+	}
 
-		if ( pPlayer != GetEnemy() )
+	if (flLengthToPlayer <= GRENADE_PULL_MAX_DISTANCE && flLengthToEnemy <= GRENADE_PULL_MAX_DISTANCE)
+	{
+		float flPullChance = 1.0f - (flLengthToEnemy / GRENADE_PULL_MAX_DISTANCE);
+		m_flGrenadePullTime = gpGlobals->curtime + 0.5f;
+
+		if (flPullChance >= random->RandomFloat( 0.0f, 1.0f ))
 		{
-			flLengthToEnemy = ( GetEnemy()->GetAbsOrigin() - GetAbsOrigin()).Length();
-		}
-
-		if ( flLengthToPlayer <= GRENADE_PULL_MAX_DISTANCE && flLengthToEnemy <= GRENADE_PULL_MAX_DISTANCE )
-		{
-			float flPullChance = 1.0f - ( flLengthToEnemy / GRENADE_PULL_MAX_DISTANCE );
-			m_flGrenadePullTime = gpGlobals->curtime + 0.5f;
-
-			if ( flPullChance >= random->RandomFloat( 0.0f, 1.0f ) )
-			{
-				g_flZombineGrenadeTimes = gpGlobals->curtime + 10.0f;
-				SetCondition( COND_ZOMBINE_GRENADE );
-			}
+			g_flZombineGrenadeTimes = gpGlobals->curtime + 10.0f;
+			SetCondition( COND_ZOMBINE_GRENADE );
 		}
 	}
 }
+}
 
-int CNPC_Zombine::TranslateSchedule( int scheduleType ) 
+int CNPC_Zombine::TranslateSchedule( int scheduleType )
 {
 	return BaseClass::TranslateSchedule( scheduleType );
 }
 
 void CNPC_Zombine::DropGrenade( Vector vDir )
 {
-	if ( m_hGrenade == NULL )
-		 return;
+	if (m_hGrenade == NULL)
+		return;
 
 	m_hGrenade->SetParent( NULL );
 	m_hGrenade->SetOwnerEntity( NULL );
@@ -472,7 +456,7 @@ void CNPC_Zombine::DropGrenade( Vector vDir )
 
 	IPhysicsObject *pPhysObj = m_hGrenade->VPhysicsGetObject();
 
-	if ( pPhysObj == NULL )
+	if (pPhysObj == NULL)
 	{
 		m_hGrenade->SetMoveType( MOVETYPE_VPHYSICS );
 		m_hGrenade->SetSolid( SOLID_VPHYSICS );
@@ -481,7 +465,7 @@ void CNPC_Zombine::DropGrenade( Vector vDir )
 		m_hGrenade->CreateVPhysics();
 	}
 
-	if ( pPhysObj )
+	if (pPhysObj)
 	{
 		pPhysObj->Wake();
 		pPhysObj->SetPosition( vGunPos, angles, true );
@@ -497,10 +481,53 @@ void CNPC_Zombine::Event_Killed( const CTakeDamageInfo &info )
 {
 	BaseClass::Event_Killed( info );
 
-	if ( HasGrenade() )
+	if (HasGrenade())
 	{
 		DropGrenade( vec3_origin );
 	}
+
+	// Hack to give the player a crowbar at the start of episode 1
+	// (because the crowbar is awesome now)
+	CBasePlayer* pPlayer = UTIL_GetLocalPlayer();
+	if ( pPlayer && !pPlayer->Weapon_OwnsThisType( "weapon_crowbar" ) )
+	{
+		// Make a crowbar and drop it
+		CBaseEntity* pCrowbar = CreateEntityByName( "weapon_crowbar" );
+		if (!pCrowbar)
+			return;
+
+		pCrowbar->Precache();
+		pCrowbar->SetAbsOrigin( GetAbsOrigin() + Vector( 0, 0, 76 ) );
+		pCrowbar->Spawn();
+
+		Vector vPos, vDir(0,0,10);
+		QAngle angles;
+		GetAttachment( "grenade_attachment", vPos, angles );
+
+		IPhysicsObject *pPhysObj = pCrowbar->VPhysicsGetObject();
+
+		if (pPhysObj == NULL)
+		{
+			pCrowbar->SetMoveType( MOVETYPE_VPHYSICS );
+			pCrowbar->SetSolid( SOLID_VPHYSICS );
+			pCrowbar->SetCollisionGroup( COLLISION_GROUP_WEAPON );
+
+			pCrowbar->CreateVPhysics();
+		}
+
+		if (pPhysObj)
+		{
+			pPhysObj->Wake();
+			pPhysObj->SetPosition( vPos, angles, true );
+			pPhysObj->ApplyForceCenter( vDir );
+
+			pPhysObj->RecheckCollisionFilter();
+		}
+	}
+    
+		
+
+
 }
 
 //-----------------------------------------------------------------------------
@@ -576,9 +603,6 @@ void CNPC_Zombine::HandleAnimEvent( animevent_t *pEvent )
 				pGrenade->SetParent( this, iAttachment );
 
 				pGrenade->SetDamage( 200.0f );
-#ifdef MAPBASE
-				m_OnGrenade.Set(pGrenade, pGrenade, this);
-#endif
 				m_hGrenade = pGrenade;
 				
 				EmitSound( "Zombine.ReadyGrenade" );

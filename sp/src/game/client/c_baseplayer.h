@@ -23,12 +23,9 @@
 #include "hintsystem.h"
 #include "SoundEmitterSystem/isoundemittersystembase.h"
 #include "c_env_fog_controller.h"
-#ifdef MAPBASE // From Alien Swarm SDK
-#include "c_postprocesscontroller.h"
-#include "c_colorcorrection.h"
-#endif
 #include "igameevents.h"
 #include "GameEventListener.h"
+#include "player_mobility_defs.h"
 
 #if defined USES_ECON_ITEMS
 #include "econ_item.h"
@@ -41,7 +38,6 @@ class C_BaseViewModel;
 class C_FuncLadder;
 class CFlashlightEffect;
 class C_EconWearable;
-class C_PostProcessController;
 
 extern int g_nKillCamMode;
 extern int g_nKillCamTarget1;
@@ -66,7 +62,6 @@ public:
 #define CHASE_CAM_DISTANCE_MIN	16.0f
 #define CHASE_CAM_DISTANCE_MAX	96.0f
 #define WALL_OFFSET				6.0f
-
 
 bool IsInFreezeCam( void );
 
@@ -188,7 +183,7 @@ public:
 
 	// Flashlight
 	void	Flashlight( void );
-	virtual void	UpdateFlashlight( void );
+	void	UpdateFlashlight( void );
 
 	// Weapon selection code
 	virtual bool				IsAllowedToSwitchWeapons( void ) { return !IsObserver(); }
@@ -207,11 +202,6 @@ public:
 	void						SetMaxSpeed( float flMaxSpeed ) { m_flMaxspeed = flMaxSpeed; }
 	float						MaxSpeed() const		{ return m_flMaxspeed; }
 
-#ifdef MAPBASE
-	// See c_baseplayer.cpp
-	virtual ShadowType_t		ShadowCastType();
-	virtual bool				ShouldReceiveProjectedTextures( int flags );
-#else
 	// Should this object cast shadows?
 	virtual ShadowType_t		ShadowCastType() { return SHADOWS_NONE; }
 
@@ -219,7 +209,6 @@ public:
 	{
 		return false;
 	}
-#endif
 
 
 	bool						IsLocalPlayer( void ) const;
@@ -272,7 +261,7 @@ public:
 	virtual C_BaseCombatWeapon *GetLastWeapon( void ) { return m_hLastWeapon.Get(); }
 	void						ResetAutoaim( void );
 	virtual void 				SelectItem( const char *pstr, int iSubType = 0 );
-
+	virtual bool                Weapon_Lower( void ) { return true; }
 	virtual void				UpdateClientData( void );
 
 	virtual float				GetFOV( void );	
@@ -354,6 +343,17 @@ public:
 
 	virtual void UpdateStepSound( surfacedata_t *psurface, const Vector &vecOrigin, const Vector &vecVelocity  );
 	virtual void PlayStepSound( Vector &vecOrigin, surfacedata_t *psurface, float fvol, bool force );
+	// Mobility sound functions
+	virtual void PlayAirjumpSound( Vector &vecOrigin );
+	virtual void PlayPowerSlideSound( Vector &vecOrigin );
+	virtual void StopPowerSlideSound( void ); 
+	virtual void PlayWallRunSound( Vector &vecOrigin );
+	virtual void StopWallRunSound( void );
+	virtual void DeriveMaxSpeed( void ) {};
+
+	Vector  GetEscapeVel() { return m_vecCornerEscapeVel; }
+	void    SetEscapeVel( Vector vecNewYaw ) { m_vecCornerEscapeVel = vecNewYaw; }
+
 	virtual surfacedata_t * GetFootstepSurface( const Vector &origin, const char *surfaceName );
 	virtual void GetStepSoundVelocities( float *velwalk, float *velrun );
 	virtual void SetStepSoundTime( stepsoundtimes_t iStepSoundTime, bool bWalking );
@@ -390,11 +390,6 @@ public:
 	void					UpdateFogController( void );
 	void					UpdateFogBlend( void );
 
-#ifdef MAPBASE // From Alien Swarm SDK
-	C_PostProcessController* GetActivePostProcessController() const;
-	C_ColorCorrection*		GetActiveColorCorrection() const;
-#endif
-
 	float					GetFOVTime( void ){ return m_flFOVTime; }
 
 	virtual void			OnAchievementAchieved( int iAchievement ) {}
@@ -413,14 +408,18 @@ public:
 	void					SetFiredWeapon( bool bFlag ) { m_bFiredWeapon = bFlag; }
 
 	virtual bool			CanUseFirstPersonCommand( void ){ return true; }
+
+	
 	
 protected:
 	fogparams_t				m_CurrentFog;
 	EHANDLE					m_hOldFogController;
 
+	virtual void            DebounceAttackKeys();
+
 public:
 	int m_StuckLast;
-	
+	float m_flFragCookStartTime; // needed by HUD
 	// Data for only the local player
 	CNetworkVarEmbedded( CPlayerLocalData, m_Local );
 
@@ -458,36 +457,52 @@ public:
 	float			m_flConstraintRadius;
 	float			m_flConstraintWidth;
 	float			m_flConstraintSpeedFactor;
+	
+	// Mobility mod
+	bool m_bLessClip = false;
+	bool m_bIsPowerSliding = false;
+	WallRunState m_nWallRunState = WALLRUN_NOT;
+	Vector m_vecWallNorm;
+	float m_flAutoViewTime; // if wallrunning, when should start adjusting the view 
+	bool m_bWallRunBumpAhead; // are we moving out from the wall anticipating a bump?
+	Vector m_vecLastWallRunPos; // Position when we ended the last wallrun
+	AirJumpState m_nAirJumpState; // Is the airjump ready, in progress, or done?
+	// Is the player allowed to jump while in the air
+	bool                CanAirJump( void ) 
+	{ 
+		return IsSuitEquipped() && 
+			   m_nAirJumpState != AIRJUMP_DONE &&
+			   m_nAirJumpState != AIRJUMP_NORM_JUMPING;
+	}
+	HSOUNDSCRIPTHANDLE m_hssPowerSlideSound;
+	HSOUNDSCRIPTHANDLE m_hssWallRunSound;
 
-#ifdef MAPBASE
-	// Transmitted from the server for internal player spawnflags.
-	// See baseplayer_shared.h for more details.
-	int				m_spawnflags;
+	float m_flCoyoteTime; // When a wallrun ends or we go over a cliff, allow a window when
+	// jumping counts as a normal jump off the ground/wall, even though
+	// technically airborn. Compensating for player's perception/reflexes.
+	// This is the absolute time until which we allow the special jump
 
-	inline bool		HasSpawnFlags( int flags ) { return (m_spawnflags & flags) != 0; }
-	inline void		RemoveSpawnFlags( int flags ) { m_spawnflags &= ~flags; }
-	inline void		AddSpawnFlags( int flags ) { m_spawnflags |= flags; }
+	float m_flNextWallRunTime; // Sometimes we want to have a little cooldown for wallrunning - 
+	// mostly if a wallrun ended because it was above a doorway
 
-	// Allows the player's model to draw on non-main views, like monitors or mirrors.
-	bool			m_bDrawPlayerModelExternally;
+	Vector m_vecCornerEscapeVel;
 
-	bool			m_bInTriggerFall;
-#endif
+	PlayerMeleeState m_nMeleeState;
 
 protected:
 
-	//Tony; made all of these virtual so mods can override.
-	virtual void		CalcPlayerView( Vector& eyeOrigin, QAngle& eyeAngles, float& fov );
-	virtual void		CalcVehicleView(IClientVehicle *pVehicle, Vector& eyeOrigin, QAngle& eyeAngles, float& zNear, float& zFar, float& fov );
+	void				CalcPlayerView( Vector& eyeOrigin, QAngle& eyeAngles, float& fov );
+	void				CalcVehicleView(IClientVehicle *pVehicle, Vector& eyeOrigin, QAngle& eyeAngles,
+							float& zNear, float& zFar, float& fov );
 	virtual void		CalcObserverView( Vector& eyeOrigin, QAngle& eyeAngles, float& fov );
 	virtual Vector		GetChaseCamViewOffset( CBaseEntity *target );
-	virtual void		CalcChaseCamView( Vector& eyeOrigin, QAngle& eyeAngles, float& fov );
+	void				CalcChaseCamView( Vector& eyeOrigin, QAngle& eyeAngles, float& fov );
 	virtual void		CalcInEyeCamView( Vector& eyeOrigin, QAngle& eyeAngles, float& fov );
 
 	virtual float		GetDeathCamInterpolationTime();
 
 	virtual void		CalcDeathCamView( Vector& eyeOrigin, QAngle& eyeAngles, float& fov );
-	virtual void		CalcRoamingView(Vector& eyeOrigin, QAngle& eyeAngles, float& fov);
+	void				CalcRoamingView(Vector& eyeOrigin, QAngle& eyeAngles, float& fov);
 	virtual void		CalcFreezeCamView( Vector& eyeOrigin, QAngle& eyeAngles, float& fov );
 
 	// Check to see if we're in vgui input mode...
@@ -612,6 +627,8 @@ private:
 	float m_flAvoidanceDotForward;
 	float m_flAvoidanceDotRight;
 
+
+    
 protected:
 	virtual bool IsDucked( void ) const { return m_Local.m_bDucked; }
 	virtual bool IsDucking( void ) const { return m_Local.m_bDucking; }
@@ -619,6 +636,7 @@ protected:
 	void ForceSetupBonesAtTimeFakeInterpolation( matrix3x4_t *pBonesOut, float curtimeOffset );
 
 	float m_flLaggedMovementValue;
+	
 
 	// These are used to smooth out prediction corrections. They're most useful when colliding with
 	// vphysics objects. The server will be sending constant prediction corrections, and these can help
@@ -643,13 +661,14 @@ protected:
 
 	int				m_nForceVisionFilterFlags; // Force our vision filter to a specific setting
 
+
 #if defined USES_ECON_ITEMS
 	// Wearables
 	CUtlVector<CHandle<C_EconWearable > >	m_hMyWearables;
 #endif
 
 private:
-
+	
 	struct StepSoundCache_t
 	{
 		StepSoundCache_t() : m_usSoundNameIndex( 0 ) {}
@@ -658,11 +677,6 @@ private:
 	};
 	// One for left and one for right side of step
 	StepSoundCache_t		m_StepSoundCache[ 2 ];
-
-#ifdef MAPBASE // From Alien Swarm SDK
-	CNetworkHandle( C_PostProcessController, m_hPostProcessCtrl );	// active postprocessing controller
-	CNetworkHandle( C_ColorCorrection, m_hColorCorrectionCtrl );	// active FXVolume color correction
-#endif
 
 public:
 

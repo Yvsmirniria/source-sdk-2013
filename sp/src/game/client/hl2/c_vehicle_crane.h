@@ -47,6 +47,7 @@ public:
 	virtual int GetPrimaryAmmoClip() const  { return -1; }
 	virtual bool PrimaryAmmoUsesClips() const { return false; }
 	virtual int GetJoystickResponseCurve() const { return 0; }
+	virtual int GetCurrentSpeed() const { return 0; }
 
 public:
 

@@ -215,10 +215,6 @@ protected:
 
 	EHANDLE			m_hRotorWash;	// Attached rotorwash entity
 
-#ifdef MAPBASE
-	bool			m_bAllowAnyDamage;
-#endif
-
 	// Inputs
 	void			InputActivate( inputdata_t &inputdata );
 
@@ -267,10 +263,6 @@ private:
 	typedef CHandle<CAvoidSphere> AvoidSphereHandle_t;
 
 	float m_flRadius;
-#ifdef MAPBASE
-	string_t m_iszAvoidFilter;
-	EHANDLE m_hAvoidFilter;
-#endif
 	
 	static CUtlVector< AvoidSphereHandle_t > s_AvoidSpheres; 
 };

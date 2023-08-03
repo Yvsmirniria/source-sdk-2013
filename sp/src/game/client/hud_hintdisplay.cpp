@@ -467,6 +467,8 @@ bool CHudHintKeyDisplay::SetHintText( const char *text )
 	// look up the text string
 	wchar_t *ws = g_pVGuiLocalize->Find( text );
 
+	bool isBold = false;
+
 	wchar_t wszBuf[256];
 	if ( !ws || wcslen(ws) <= 0)
 	{
@@ -485,16 +487,27 @@ bool CHudHintKeyDisplay::SetHintText( const char *text )
 	{
 		wchar_t token[256];
 		bool isVar = false;
-
+		bool isComboVar = false; // Combo var is for first key in key combo, e.g. F + MOUSE2 for slash attack
+		char chEnd = '%';
 		// check for variables
 		if ( *ws == '%' )
 		{
 			isVar = true;
 			++ws;
 		}
+		else if (*ws == '*') {
+			isBold = true;
+			chEnd = '*';
+			++ws;
+		}
+		else if (*ws == '^') {
+			isVar = true;
+			isComboVar = true;
+			++ws;
+		}
 
 		// parse out the string
-		wchar_t *end = wcschr( ws, '%' );
+		wchar_t *end = wcschr( ws, chEnd );
 		if ( end )
 		{
 			wcsncpy( token, ws, MIN( end - ws, ARRAYSIZE(token)) );
@@ -599,41 +612,48 @@ bool CHudHintKeyDisplay::SetHintText( const char *text )
 			else
 			{
 				const char *key = engine->Key_LookupBinding( *binding == '+' ? binding + 1 : binding );
-#ifdef MAPBASE
-				if ( !key )
-				{
-					const char *pszNotBound = VarArgs("< %s, not bound >", *binding == '+' ? binding + 1 : binding);
-					if (strchr(binding, '&'))
-					{
-						// "%walk&use%" >> "ALT + E"
-						char *token = strtok(binding, "&");
-						while (token)
-						{
-							const char *tokenkey = engine->Key_LookupBinding( *token == '+' ? token + 1 : token );
-
-							key = VarArgs("%s%s%s", key ? key : "", key ? " + " : "", tokenkey ? tokenkey : pszNotBound);
-
-							token = strtok(NULL, "&");
-						}
-					}
-					else if (binding[0] == '$')
-					{
-						// "%$COOL STRING DUDE%" >> "COOL STRING DUDE"
-						key = binding + 1;
-					}
-					else
-					{
-						key = pszNotBound;
-					}
-				}
-#else
 				if ( !key )
 				{
 					key = "< not bound >";
 				}
-#endif
 
-				Q_snprintf( friendlyName, sizeof(friendlyName), "#%s", key );
+				if ( isComboVar ) 
+				{
+					// Get the second key
+
+					// parse out the string
+					wchar_t *end = wcschr( ws, chEnd );
+					if (end)
+					{
+						wcsncpy( token, ws, MIN( end - ws, ARRAYSIZE( token ) ) );
+						token[end - ws] = L'\0';	// force null termination
+					}
+					else
+					{
+						wcsncpy( token, ws, ARRAYSIZE( token ) );
+						token[ARRAYSIZE( token ) - 1] = L'\0';	// force null termination
+					}
+
+					char binding2[64];
+					g_pVGuiLocalize->ConvertUnicodeToANSI( token, binding2, sizeof( binding2 ) );
+
+					ws += wcslen( token );
+					if (isVar)
+					{
+						// move over the end of the variable
+						++ws;
+					}
+					const char *key2 = engine->Key_LookupBinding( *binding2 == '+' ? binding2 + 1 : binding2 );
+					if (!key)
+					{
+						key = "< not bound >";
+					}
+
+					Q_snprintf( friendlyName, sizeof( friendlyName ), " %s + %s", key, key2 );
+				}
+				else {
+					Q_snprintf( friendlyName, sizeof( friendlyName ), "#%s", key );
+				}
 				Q_strupr( friendlyName );
 
 				// set the variable text - key may need to be localized (button images for example)
@@ -650,6 +670,10 @@ bool CHudHintKeyDisplay::SetHintText( const char *text )
 					label->SetText( locName );
 				}
 			}
+		}
+		else if ( isBold )
+		{
+			label->SetFont( m_hLargeFont );
 		}
 		else
 		{

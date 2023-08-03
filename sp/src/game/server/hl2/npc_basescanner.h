@@ -200,11 +200,6 @@ protected:
 	float				m_flAttackFarDist;
 	float				m_flAttackRange;
 
-#ifdef MAPBASE
-	// Custom max speed for mappers to control
-	float				m_flCustomMaxSpeed;
-#endif
-
 private:
 	CSoundPatch			*m_pEngineSound;
 

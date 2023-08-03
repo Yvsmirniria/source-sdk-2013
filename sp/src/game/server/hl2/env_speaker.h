@@ -36,13 +36,6 @@ protected:
 
 	void SpeakerThink( void );
 
-#ifdef MAPBASE
-	EHANDLE			m_hTarget;
-	virtual void	InputSetTarget( inputdata_t &inputdata ) { BaseClass::InputSetTarget(inputdata); m_hTarget = NULL; }
-	CBaseEntity		*GetTarget();
-	virtual void	DispatchResponse( const char *conceptName );
-#endif
-
 	void InputToggle( inputdata_t &inputdata );
 
 	float	m_delayMin;
@@ -56,10 +49,6 @@ public:
 
 	void InputTurnOff( inputdata_t &inputdata );
 	void InputTurnOn( inputdata_t &inputdata );
-
-#ifdef MAPBASE
-	COutputString m_OnSpeak;
-#endif
 };
 
 #endif // ENV_SPEAKER_H

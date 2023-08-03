@@ -28,6 +28,7 @@
 #include "vehicle_jeep.h"
 #include "eventqueue.h"
 #include "rumble_shared.h"
+#include "explode.h"
 // NVNT haptic utils
 #include "haptics/haptic_utils.h"
 // memdbgon must be the last include file in a .cpp file!!!
@@ -67,6 +68,7 @@ const char *g_pJeepThinkContext = "JeepSeagullThink";
 ConVar	sk_jeep_gauss_damage( "sk_jeep_gauss_damage", "15" );
 ConVar	hud_jeephint_numentries( "hud_jeephint_numentries", "10", FCVAR_NONE );
 ConVar	g_jeepexitspeed( "g_jeepexitspeed", "100", FCVAR_CHEAT );
+ConVar  sv_jeepgun_rpm( "sv_jeepgun_rpm", "433" );
 
 extern ConVar autoaim_max_dist;
 extern ConVar sv_vehicle_autoaim_scale;
@@ -105,6 +107,7 @@ BEGIN_DATADESC( CPropJeep )
 	DEFINE_FIELD( m_nBulletType, FIELD_INTEGER ),
 	DEFINE_FIELD( m_bCannonCharging, FIELD_BOOLEAN ),
 	DEFINE_FIELD( m_flCannonTime, FIELD_TIME ),
+	DEFINE_FIELD( m_flNextBlastTime, FIELD_TIME ),
 	DEFINE_FIELD( m_flCannonChargeStartTime, FIELD_TIME ),
 	DEFINE_FIELD( m_vecGunOrigin, FIELD_POSITION_VECTOR ),
 	DEFINE_SOUNDPATCH( m_sndCannonCharge ),
@@ -121,6 +124,7 @@ BEGIN_DATADESC( CPropJeep )
 	DEFINE_FIELD( m_vecEyeSpeed, FIELD_POSITION_VECTOR ),
 	DEFINE_FIELD( m_vecTargetSpeed, FIELD_POSITION_VECTOR ),
 	DEFINE_FIELD( m_bHeadlightIsOn, FIELD_BOOLEAN ),
+	DEFINE_FIELD( m_flVelocity, FIELD_FLOAT ),
 	DEFINE_EMBEDDED( m_WaterData ),
 
 	DEFINE_FIELD( m_iNumberOfEntries, FIELD_INTEGER ),
@@ -135,27 +139,23 @@ BEGIN_DATADESC( CPropJeep )
 	DEFINE_INPUTFUNC( FIELD_VOID, "ShowHudHint", InputShowHudHint ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "StartRemoveTauCannon", InputStartRemoveTauCannon ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "FinishRemoveTauCannon", InputFinishRemoveTauCannon ),
-#ifdef MAPBASE
-	DEFINE_INPUTFUNC( FIELD_VOID, "DisablePhysGun",				InputDisablePhysGun ),
-	DEFINE_INPUTFUNC( FIELD_VOID, "EnablePhysGun",				InputEnablePhysGun ),
-#endif
+	DEFINE_INPUTFUNC( FIELD_FLOAT, "Steer", InputSteering ),
 
 	DEFINE_THINKFUNC( JeepSeagullThink ),
 END_DATADESC()
 
 IMPLEMENT_SERVERCLASS_ST( CPropJeep, DT_PropJeep )
 	SendPropBool( SENDINFO( m_bHeadlightIsOn ) ),
+	SendPropFloat( SENDINFO( m_flVelocity ) ),
 END_SEND_TABLE();
 
 // This is overriden for the episodic jeep
 #ifndef HL2_EPISODIC
 LINK_ENTITY_TO_CLASS( prop_vehicle_jeep, CPropJeep );
+#else 
+LINK_ENTITY_TO_CLASS( prop_vehicle_hl2buggy, CPropJeep );
 #endif
 
-#ifdef MAPBASE
-// Shortcut to old jeep for those who want to use the scout car in Episodic
-LINK_ENTITY_TO_CLASS( prop_vehicle_jeep_old, CPropJeep );
-#endif
 
 //-----------------------------------------------------------------------------
 // Purpose: 
@@ -166,12 +166,15 @@ CPropJeep::CPropJeep( void )
 	m_bGunHasBeenCutOff = false;
 	m_bCannonCharging = false;
 	m_flCannonChargeStartTime = 0;
+	m_flNextBlastTime = 0;
 	m_flCannonTime = 0;
 	m_nBulletType = -1;
 	m_flOverturnedTime = 0.0f;
 	m_iNumberOfEntries = 0;
 
 	m_vecEyeSpeed.Init();
+
+	m_flVelocity = 0.0f;
 
 	InitWaterData();
 
@@ -907,9 +910,9 @@ void CPropJeep::FireCannon( void )
 	if ( m_bUnableToFire )
 		return;
 
-	CDisablePredictionFiltering disabler;
-
-	m_flCannonTime = gpGlobals->curtime + 0.2f;
+	                                // nobody dividin' by zero here
+	const float m_flCannonCooldown = 60.0 / MAX( 1, sv_jeepgun_rpm.GetFloat() );
+	m_flCannonTime = gpGlobals->curtime + m_flCannonCooldown;
 	m_bCannonCharging = false;
 
 	//Find the direction the gun is pointing in
@@ -947,8 +950,6 @@ void CPropJeep::FireCannon( void )
 //-----------------------------------------------------------------------------
 void CPropJeep::FireChargedCannon( void )
 {
-	CDisablePredictionFiltering disabler;
-
 	bool penetrated = false;
 
 	m_bCannonCharging	= false;
@@ -1057,6 +1058,47 @@ void CPropJeep::FireChargedCannon( void )
 	{
 		RadiusDamage( CTakeDamageInfo( this, this, flDamage, DMG_SHOCK ), tr.endpos, 200.0f, CLASS_NONE, NULL );
 	}
+}
+
+//---------------------------------------------------
+// Create a ring of explosions around the jeep
+//---------------------------------------------------
+void CPropJeep::DoEnergyBlast( void )
+{
+	if (m_flNextBlastTime > gpGlobals->curtime)
+		return;
+
+	EHANDLE hJeep = this->GetRefEHandle();
+
+	const float flBlastCooldown = 1.0;
+	const int nBlasts = 6;
+
+	Vector vecForward;
+	AngleVectors( GetAbsAngles(), &vecForward );
+	VectorNormalizeFast( vecForward );
+	VectorScale( vecForward, 100, vecForward );
+	for (int i = 0; i < nBlasts; i++) {
+		Vector vecOffset;
+		float flYaw = 360.0 * i / nBlasts;
+		VectorYawRotate( vecForward, flYaw, vecOffset);
+
+		
+		ExplosionCreate(
+			GetAbsOrigin() + vecOffset,
+			GetAbsAngles(),
+			this->GetBaseEntity(), //owner
+			200,  //magnitude 
+			1200,  //radius
+			true,  // dmg?
+			&hJeep, // ignored ent
+			CLASS_PLAYER, //ignored class
+			10000, //Explosion force
+			false, //surface only?
+			false, //silent?
+			DMG_BLAST );
+	}
+
+	m_flNextBlastTime = gpGlobals->curtime + flBlastCooldown;
 }
 
 //-----------------------------------------------------------------------------
@@ -1338,7 +1380,8 @@ void CPropJeep::DriveVehicle( float flFrameTime, CUserCmd *ucmd, int iButtonsDow
 	int iButtons = ucmd->buttons;
 
 	//Adrian: No headlights on Superfly.
-/*	if ( ucmd->impulse == 100 )
+	//Rob: Why not?
+	if ( ucmd->impulse == 100 )
 	{
 		if (HeadlightIsOn())
 		{
@@ -1348,7 +1391,7 @@ void CPropJeep::DriveVehicle( float flFrameTime, CUserCmd *ucmd, int iButtonsDow
 		{
 			HeadlightTurnOn();
 		}
-	}*/
+	}
 		
 	// Only handle the cannon if the vehicle has one
 	if ( m_bHasGun )
@@ -1380,7 +1423,15 @@ void CPropJeep::DriveVehicle( float flFrameTime, CUserCmd *ucmd, int iButtonsDow
 		}
 	}
 
+	if (iButtonsDown & IN_RELOAD)
+	{
+		//DoEnergyBlast();
+		m_VehiclePhysics.SetViewSteering( !m_VehiclePhysics.UseViewSteering() );
+	}
+
+
 	BaseClass::DriveVehicle( flFrameTime, ucmd, iButtonsDown, iButtonsReleased );
+
 }
 
 //-----------------------------------------------------------------------------
@@ -1394,6 +1445,7 @@ void CPropJeep::ProcessMovement( CBasePlayer *pPlayer, CMoveData *pMoveData )
 
 	// Create dangers sounds in front of the vehicle.
 	CreateDangerSounds();
+	
 }
 
 //-----------------------------------------------------------------------------
@@ -1686,23 +1738,6 @@ void CPropJeep::InputFinishRemoveTauCannon( inputdata_t &inputdata )
 	SetBodygroup( 1, false );
 	m_bHasGun = false;
 }
-
-#ifdef MAPBASE
-//-----------------------------------------------------------------------------
-// Purpose: Stop players punting the car around.
-//-----------------------------------------------------------------------------
-void CPropJeep::InputDisablePhysGun( inputdata_t &data )
-{
-	AddEFlags( EFL_NO_PHYSCANNON_INTERACTION );
-}
-//-----------------------------------------------------------------------------
-// Purpose: Return to normal
-//-----------------------------------------------------------------------------
-void CPropJeep::InputEnablePhysGun( inputdata_t &data )
-{
-	RemoveEFlags( EFL_NO_PHYSCANNON_INTERACTION );
-}
-#endif
 
 //========================================================================================================================================
 // JEEP FOUR WHEEL PHYSICS VEHICLE SERVER VEHICLE

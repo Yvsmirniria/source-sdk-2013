@@ -15,10 +15,6 @@
 #include "playernet_vars.h"
 #include "networkvar.h"
 #include "fogcontroller.h"
-#ifdef MAPBASE // From Alien Swarm SDK
-#include "postprocesscontroller.h"
-#include "colorcorrection.h"
-#endif
 
 //-----------------------------------------------------------------------------
 // Purpose: Player specific data ( sent only to local player, too )
@@ -58,6 +54,9 @@ public:
 	CNetworkVar( float, m_flDuckJumpTime );
 	// Jump time, time to auto unduck (since we auto crouch jump now).
 	CNetworkVar( float, m_flJumpTime );
+	// Mobility - power slide time
+	CNetworkVar( float, m_flSlideTime );
+	CNetworkVar( float, m_flWallRunTime );
 	// Step sound side flip/flip
 	int m_nStepside;;
 	// Velocity at time when we hit ground
@@ -69,6 +68,7 @@ public:
 	//  client can predict conveyors correctly.  Server zeroes it, so we need to store here, too.
 	// auto-decaying view angle adjustment
 	CNetworkQAngle( m_vecPunchAngle );		
+	CNetworkQAngle( m_vecTargetPunchAngle );
 	CNetworkQAngle( m_vecPunchAngleVel );
 	// Draw view model for the player
 	CNetworkVar( bool, m_bDrawViewmodel );
@@ -86,9 +86,6 @@ public:
 	fogparams_t			m_fog;
 	// audio environment
 	CNetworkVarEmbedded( audioparams_t, m_audio );
-
-	//Tony; added so tonemap controller can work in multiplayer with inputs.
-	CNetworkVarEmbedded( tonemap_params_t, m_TonemapParams );
 
 	CNetworkVar( bool, m_bSlowMovement );
 };

@@ -73,10 +73,6 @@ public:
 	void InputRandomizeFMod( inputdata_t &inputdata );
 	void InputGetFMod( inputdata_t &inputdata );
 
-#ifdef MAPBASE
-	void InputSetTarget( inputdata_t &inputdata );
-#endif
-
 private:
 
 	CNetworkArray( EHANDLE, m_hProps, MAX_POSE_CONTROLLED_PROPS );				// Handles to controlled models

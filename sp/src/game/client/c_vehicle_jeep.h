@@ -43,6 +43,8 @@ public:
 	void OnEnteredVehicle( C_BasePlayer *pPlayer );
 	void Simulate( void );
 
+	int GetCurrentSpeed();
+
 private:
 
 	void DampenForwardMotion( Vector &vecVehicleEyePos, QAngle &vecVehicleEyeAngles, float flFrameTime );
@@ -61,6 +63,7 @@ private:
 	float		m_flJeepFOV;
 	CHeadlightEffect *m_pHeadlight;
 	bool		m_bHeadlightIsOn;
+	float       m_flVelocity;
 };
 
 #endif // C_VEHICLE_JEEP_H

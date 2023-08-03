@@ -40,7 +40,6 @@
 extern ConVar in_joystick;
 extern ConVar cam_idealpitch;
 extern ConVar cam_idealyaw;
-
 // For showing/hiding the scoreboard
 #include <game/client/iviewport.h>
 
@@ -144,6 +143,11 @@ static  kbutton_t   in_grenade1;
 static  kbutton_t   in_grenade2;
 static	kbutton_t	in_attack3;
 kbutton_t	in_ducktoggle;
+kbutton_t   in_speedtoggle;
+
+// Mobility hack
+static const char* toggle_duck_key = ""; // need this for unducktoggle on jump
+static const char* toggle_speed_key = ""; // need to toggle speed off when enter car
 
 /*
 ===========
@@ -469,8 +473,16 @@ void IN_Attack2Down( const CCommand &args ) { KeyDown(&in_attack2, args[1] );}
 void IN_Attack2Up( const CCommand &args ) {KeyUp(&in_attack2, args[1] );}
 void IN_UseDown ( const CCommand &args ) {KeyDown(&in_use, args[1] );}
 void IN_UseUp ( const CCommand &args ) {KeyUp(&in_use, args[1] );}
-void IN_JumpDown ( const CCommand &args ) {KeyDown(&in_jump, args[1] );}
-void IN_JumpUp ( const CCommand &args ) {KeyUp(&in_jump, args[1] );}
+void IN_JumpDown ( const CCommand &args ) {
+	KeyDown(&in_jump, args[1] );
+	if (::input->KeyState( &in_ducktoggle ))
+	{
+		KeyUp( &in_ducktoggle, toggle_duck_key );
+	}
+}
+void IN_JumpUp ( const CCommand &args ) {
+	KeyUp(&in_jump, args[1] );
+}
 void IN_DuckDown( const CCommand &args ) {KeyDown(&in_duck, args[1] );}
 void IN_DuckUp( const CCommand &args ) {KeyUp(&in_duck, args[1] );}
 void IN_ReloadDown( const CCommand &args ) {KeyDown(&in_reload, args[1] );}
@@ -501,6 +513,41 @@ void IN_DuckToggle( const CCommand &args )
 	{
 		KeyDown( &in_ducktoggle, args[1] ); 
 	}
+
+	toggle_duck_key = args[1];
+}
+
+bool IN_ClearSpeedToggle()
+{
+	if (::input->KeyState( &in_speedtoggle ))
+	{
+		KeyUp( &in_speedtoggle, toggle_speed_key );
+		return true;
+	}
+	return false;
+}
+
+bool IN_ClearDuckToggle()
+{
+	if (::input->KeyState( &in_ducktoggle ))
+	{
+		KeyUp( &in_ducktoggle, toggle_duck_key );
+		return true;
+	}
+	return false;
+}
+
+void IN_SpeedToggle( const CCommand &args )
+{
+	if (::input->KeyState( &in_speedtoggle ))
+	{
+		KeyUp( &in_speedtoggle, args[1] );
+	}
+	else
+	{
+		KeyDown( &in_speedtoggle, args[1] );
+	}
+	toggle_speed_key = args[1];
 }
 
 void IN_AttackDown( const CCommand &args )
@@ -1219,9 +1266,6 @@ void CInput::CreateMove ( int sequence_number, float input_sample_frametime, boo
 	}
 
 	// Let the move manager override anything it wants to.
-#ifdef VGUI_SCREEN_FIX
-	cmd->buttons |= IN_VALIDVGUIINPUT;
-#endif
 	if ( g_pClientMode->CreateMove( input_sample_frametime, cmd ) )
 	{
 		// Get current view angles after the client mode tweaks with it
@@ -1478,6 +1522,11 @@ int CInput::GetButtonBits( int bResetState )
 		bits |= IN_DUCK;
 	}
 
+	if (KeyState( &in_speedtoggle ))
+	{
+		bits |= IN_SPEED;
+	}
+
 	// Cancel is a special flag
 	if (in_cancel)
 	{
@@ -1630,9 +1679,9 @@ static ConCommand startgrenade2( "+grenade2", IN_Grenade2Down );
 static ConCommand startattack3("+attack3", IN_Attack3Down);
 static ConCommand endattack3("-attack3", IN_Attack3Up);
 
-#ifdef TF_CLIENT_DLL
+
 static ConCommand toggle_duck( "toggle_duck", IN_DuckToggle );
-#endif
+static ConCommand toggle_speed( "toggle_speed", IN_SpeedToggle );
 
 // Xbox 360 stub commands
 static ConCommand xboxmove("xmove", IN_XboxStub);

@@ -95,6 +95,7 @@ private:
 	void		FireCannon( void );
 	void		ChargeCannon( void );
 	void		FireChargedCannon( void );
+	void        DoEnergyBlast( void );
 
 	void		DrawBeam( const Vector &startPos, const Vector &endPos, float width );
 	void		StopChargeSound( void );
@@ -118,10 +119,6 @@ private:
 	void		InputShowHudHint( inputdata_t &inputdata );
 	void		InputStartRemoveTauCannon( inputdata_t &inputdata );
 	void		InputFinishRemoveTauCannon( inputdata_t &inputdata );
-#ifdef MAPBASE
-	void		InputDisablePhysGun( inputdata_t &data );
-	void		InputEnablePhysGun( inputdata_t &data );
-#endif
 
 protected:
 
@@ -133,6 +130,7 @@ protected:
 	int				m_nBulletType;
 	bool			m_bCannonCharging;
 	float			m_flCannonTime;
+	float           m_flNextBlastTime;
 	float			m_flCannonChargeStartTime;
 	Vector			m_vecGunOrigin;
 	CSoundPatch		*m_sndCannonCharge;
@@ -165,6 +163,7 @@ protected:
 	EHANDLE			m_hSeagull;
 	bool			m_bHasPoop;
 
+	CNetworkVar( float, m_flVelocity );
 	CNetworkVar( bool, m_bHeadlightIsOn );
 };
 

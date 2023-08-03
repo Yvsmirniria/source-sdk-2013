@@ -40,6 +40,11 @@ ConVar xbox_throttlespoof("xbox_throttlespoof", "200", FCVAR_ARCHIVE );
 ConVar xbox_autothrottle("xbox_autothrottle", "1", FCVAR_ARCHIVE );
 ConVar xbox_steering_deadzone( "xbox_steering_deadzone", "0.0" );
 
+ConVar sv_viewsteer_deg( "sv_viewsteer_deg", "23", FCVAR_REPLICATED, 
+	"View angle that is used for steering in view steering mode (lower - more sensitive)" );
+ConVar sv_viewsteer_reverse( "sv_viewsteer_reverse", "1", FCVAR_REPLICATED,
+	"Reverse view steering when going backwards" );
+
 // remaps an angular variable to a 3 band function:
 // 0 <= t < start :		f(t) = 0
 // start <= t <= end :	f(t) = end * spline(( t-start) / (end-start) )  // s curve between clamped and linear
@@ -146,40 +151,8 @@ BEGIN_DATADESC_NO_BASE( CFourWheelVehiclePhysics )
 	DEFINE_FIELD( m_bLastThrottle, FIELD_BOOLEAN ),
 	DEFINE_FIELD( m_bLastBoost, FIELD_BOOLEAN ),
 	DEFINE_FIELD( m_bLastSkid, FIELD_BOOLEAN ),
+	DEFINE_FIELD( m_bViewSteer, FIELD_BOOLEAN ),
 END_DATADESC()
-
-#ifdef MAPBASE_VSCRIPT
-BEGIN_SCRIPTDESC_ROOT( CFourWheelVehiclePhysics, "Handler for four-wheel vehicle physics." )
-
-	DEFINE_SCRIPTFUNC( SetThrottle, "Sets the throttle." )
-	DEFINE_SCRIPTFUNC( SetMaxThrottle, "Sets the max throttle." )
-	DEFINE_SCRIPTFUNC( SetMaxReverseThrottle, "Sets the max reverse throttle." )
-	DEFINE_SCRIPTFUNC( SetSteering, "Sets the steering." )
-	DEFINE_SCRIPTFUNC( SetSteeringDegrees, "Sets the degrees of steering." )
-	DEFINE_SCRIPTFUNC( SetAction, "Sets the action." )
-	DEFINE_SCRIPTFUNC( SetHandbrake, "Sets the handbrake." )
-	DEFINE_SCRIPTFUNC( SetBoost, "Sets the boost." )
-	DEFINE_SCRIPTFUNC( SetHasBrakePedal, "Sets whether a handbrake pedal exists." )
-
-	DEFINE_SCRIPTFUNC( SetDisableEngine, "Sets whether the engine is disabled." )
-	DEFINE_SCRIPTFUNC( IsEngineDisabled, "Checks whether the engine is disabled." )
-
-	DEFINE_SCRIPTFUNC( EnableMotion, "Enables vehicle motion." )
-	DEFINE_SCRIPTFUNC( DisableMotion, "Disables vehicle motion." )
-
-	DEFINE_SCRIPTFUNC( GetSpeed, "Gets the speed." )
-	DEFINE_SCRIPTFUNC( GetMaxSpeed, "Gets the max speed." )
-	DEFINE_SCRIPTFUNC( GetRPM, "Gets the RPM." )
-	DEFINE_SCRIPTFUNC( GetThrottle, "Gets the throttle." )
-	DEFINE_SCRIPTFUNC( HasBoost, "Checks if the vehicle has the ability to boost." )
-	DEFINE_SCRIPTFUNC( BoostTimeLeft, "Gets how much time is left in any current boost." )
-	DEFINE_SCRIPTFUNC( IsBoosting, "Checks if the vehicle is boosting." )
-	DEFINE_SCRIPTFUNC( GetHLSpeed, "Gets HL speed." )
-	DEFINE_SCRIPTFUNC( GetSteering, "Gets the steeering." )
-	DEFINE_SCRIPTFUNC( GetSteeringDegrees, "Gets the degrees of steeering." )
-
-END_SCRIPTDESC();
-#endif
 
 
 //-----------------------------------------------------------------------------
@@ -396,6 +369,9 @@ void CFourWheelVehiclePhysics::Spawn( )
 	SetMaxReverseThrottle( -1.0f );
 
 	InitializePoseParameters();
+
+	m_bViewSteer = false;
+
 }
 
 
@@ -753,6 +729,7 @@ bool CFourWheelVehiclePhysics::Think()
 	m_nHasBoost = vehicleData.engine.boostDelay;	// if we have any boost delay, vehicle has boost ability
 
 	m_pVehicle->Update( gpGlobals->frametime, m_controls);
+	m_pVehicle->Update( gpGlobals->frametime, m_controls );
 
 	// boost sounds
 	if( IsBoosting() && !m_bLastBoost )
@@ -985,7 +962,35 @@ void CFourWheelVehiclePhysics::SteeringRest( float carSpeed, const vehicleparams
 {
 	float flSteeringRate = RemapValClamped( carSpeed, vehicleData.steering.speedSlow, vehicleData.steering.speedFast, 
 		vehicleData.steering.steeringRestRateSlow, vehicleData.steering.steeringRestRateFast );
-	m_controls.steering = Approach(0, m_controls.steering, flSteeringRate * gpGlobals->frametime );
+
+	float approachAngle = 0;
+	if (m_bViewSteer) {
+		// We want the view angle to be within a narrow range for view steering.
+		// Mapping a view angle from -180 to 180, with +90 being straight ahead, to be zero-centered +/- 180,
+		// then mapping the low angles to a steering amount between -1 and 1.
+		const float max_turn = sv_viewsteer_deg.GetFloat();
+		QAngle viewAngles = m_pOuterServerVehicle->GetDriver()->GetLocalAngles();
+
+		// rotate so that 0 is dead ahead, and invert to match steering
+		approachAngle = AngleNormalize( 90 - viewAngles[YAW] ); 
+
+		approachAngle = clamp( approachAngle, -max_turn, max_turn );
+
+		if (fabs( approachAngle ) < 1.0) {
+			// slack zone in middle
+			approachAngle = 0;
+		}
+
+		approachAngle /= max_turn;
+
+
+
+		if (m_controls.throttle < 0.0 && sv_viewsteer_reverse.GetBool()) {
+			// going backwards - reverse steering
+			approachAngle *= -1.0;
+		}
+	}
+	m_controls.steering = Approach( approachAngle, m_controls.steering, flSteeringRate * gpGlobals->frametime );
 }
 
 //-----------------------------------------------------------------------------

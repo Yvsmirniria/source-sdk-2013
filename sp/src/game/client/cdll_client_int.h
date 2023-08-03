@@ -110,9 +110,6 @@ extern IReplayManager *g_pReplayManager;
 extern IReplayScreenshotManager *g_pReplayScreenshotManager;
 extern IEngineReplay *g_pEngineReplay;
 extern IEngineClientReplay *g_pEngineClientReplay;
-#ifdef MAPBASE
-extern IVEngineServer *serverengine;
-#endif
 
 //=============================================================================
 // HPE_BEGIN
@@ -178,18 +175,6 @@ bool IsEngineThreaded();
 /// failure
 extern CSteamID GetSteamIDForPlayerIndex( int iPlayerIndex );
 
-#endif
-
-#ifdef MAPBASE
-// Mapbase RPC stuff
-enum
-{
-	RPCSTATE_INIT,
-	RPCSTATE_LEVEL_INIT,
-	RPCSTATE_LEVEL_SHUTDOWN,
-
-	RPCSTATE_UPDATE,
-};
 #endif
 
 #endif // CDLL_CLIENT_INT_H

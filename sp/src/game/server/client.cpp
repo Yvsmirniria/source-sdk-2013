@@ -35,6 +35,7 @@
 #include "datacache/imdlcache.h"
 #include "basemultiplayerplayer.h"
 #include "voice_gamemgr.h"
+#include "player_mobility_defs.h"
 
 #ifdef TF_DLL
 #include "tf_player.h"
@@ -43,10 +44,6 @@
 
 #ifdef HL2_DLL
 #include "weapon_physcannon.h"
-#endif
-
-#ifdef MAPBASE
-#include "fmtstr.h"
 #endif
 
 // memdbgon must be the last include file in a .cpp file!!!
@@ -337,16 +334,6 @@ void ClientPrecache( void )
 	CBaseEntity::PrecacheScriptSound( "Bounce.ShotgunShell" );
 	CBaseEntity::PrecacheScriptSound( "Bounce.Shell" );
 	CBaseEntity::PrecacheScriptSound( "Bounce.Concrete" );
-
-#ifdef MAPBASE
-	// Game Instructor sounds
-	CBaseEntity::PrecacheScriptSound( "Instructor.LessonStart" );
-	CBaseEntity::PrecacheScriptSound( "Instructor.ImportantLessonStart" );
-
-	// TODO: Does sv_pure cover this? This is from the ASW SDK to prevent people from making simple scripted wall hacks
-	//engine->ForceExactFile( "scripts/instructor_lessons.txt" );
-	//engine->ForceExactFile( "scripts/mod_lessons.txt" );
-#endif
 
 	ClientGamePrecache();
 }
@@ -1083,6 +1070,47 @@ void EnableNoClip( CBasePlayer *pPlayer )
 	pPlayer->AddEFlags( EFL_NOCLIP_ACTIVE );
 }
 
+void EnableLessClip( CBasePlayer *pPlayer )
+{
+	pPlayer->m_bLessClip = true;
+	ClientPrint( pPlayer, HUD_PRINTCONSOLE, "lessclip ON\n" );
+}
+
+// Shared code for coming out of noclip or lessclip. Make sure the player ends up
+// somewhere they can move
+void UnphasePlayer( CBasePlayer *pPlayer, CPlayerState *pl, Vector& oldorigin )
+{
+	if (!TestEntityPosition( pPlayer ))
+	{
+		Vector forward, right, up;
+
+		AngleVectors( pl->v_angle, &forward, &right, &up );
+
+		// Try to move into the world
+		if (!FindPassableSpace( pPlayer, forward, 1, oldorigin ))
+		{
+			if (!FindPassableSpace( pPlayer, right, 1, oldorigin ))
+			{
+				if (!FindPassableSpace( pPlayer, right, -1, oldorigin ))		// left
+				{
+					if (!FindPassableSpace( pPlayer, up, 1, oldorigin ))	// up
+					{
+						if (!FindPassableSpace( pPlayer, up, -1, oldorigin ))	// down
+						{
+							if (!FindPassableSpace( pPlayer, forward, -1, oldorigin ))	// back
+							{
+								Msg( "Can't find the world\n" );
+							}
+						}
+					}
+				}
+			}
+		}
+
+		pPlayer->SetAbsOrigin( oldorigin );
+	}
+}
+
 void CC_Player_NoClip( void )
 {
 	if ( !sv_cheats->GetBool() )
@@ -1106,40 +1134,37 @@ void CC_Player_NoClip( void )
 
 	Vector oldorigin = pPlayer->GetAbsOrigin();
 	ClientPrint( pPlayer, HUD_PRINTCONSOLE, "noclip OFF\n");
-	if ( !TestEntityPosition( pPlayer ) )
-	{
-		Vector forward, right, up;
-
-		AngleVectors ( pl->v_angle, &forward, &right, &up);
-		
-		// Try to move into the world
-		if ( !FindPassableSpace( pPlayer, forward, 1, oldorigin ) )
-		{
-			if ( !FindPassableSpace( pPlayer, right, 1, oldorigin ) )
-			{
-				if ( !FindPassableSpace( pPlayer, right, -1, oldorigin ) )		// left
-				{
-					if ( !FindPassableSpace( pPlayer, up, 1, oldorigin ) )	// up
-					{
-						if ( !FindPassableSpace( pPlayer, up, -1, oldorigin ) )	// down
-						{
-							if ( !FindPassableSpace( pPlayer, forward, -1, oldorigin ) )	// back
-							{
-								Msg( "Can't find the world\n" );
-							}
-						}
-					}
-				}
-			}
-		}
-
-		pPlayer->SetAbsOrigin( oldorigin );
-	}
+	UnphasePlayer( pPlayer, pl, oldorigin );
 }
 
 static ConCommand noclip("noclip", CC_Player_NoClip, "Toggle. Player becomes non-solid and flies.", FCVAR_CHEAT);
 
+void CC_Player_LessClip( void )
+{
 
+	CBasePlayer *pPlayer = ToBasePlayer( UTIL_GetCommandClient() );
+	if (!pPlayer)
+		return;
+
+	CPlayerState *pl = pPlayer->PlayerData();
+	Assert( pl );
+
+	if (!pPlayer->m_bLessClip){
+		EnableLessClip( pPlayer );
+		return;
+	}
+
+	Vector oldorigin = pPlayer->GetAbsOrigin();
+	ClientPrint( pPlayer, HUD_PRINTCONSOLE, "lessclip OFF\n" );
+	if (pPlayer->GetMoveType() != MOVETYPE_NOCLIP)
+	{
+		UnphasePlayer( pPlayer, pl, oldorigin );
+	}
+	pPlayer->m_bLessClip = false;
+}
+
+static ConCommand lessclip( "lessclip", CC_Player_LessClip, 
+	"Toggle. Player can pass through invisible walls and Combine forcefields." );
 //------------------------------------------------------------------------------
 // Sets client to godmode
 //------------------------------------------------------------------------------
@@ -1535,32 +1560,6 @@ void ClientCommand( CBasePlayer *pPlayer, const CCommand &args )
 	{
 		if ( !g_pGameRules->ClientCommand( pPlayer, args ) )
 		{
-#ifdef MAPBASE_VSCRIPT
-			// Console command hook for VScript
-			if ( pPlayer->m_ScriptScope.IsInitialized() )
-			{
-				ScriptVariant_t functionReturn;
-				g_pScriptVM->SetValue( "command", ScriptVariant_t( pCmd ) );
-
-				ScriptVariant_t varTable;
-				g_pScriptVM->CreateTable( varTable );
-				HSCRIPT hTable = varTable.m_hScript;
-				for ( int i = 0; i < args.ArgC(); i++ )
-				{
-					g_pScriptVM->SetValue( hTable, CNumStr( i ), ScriptVariant_t( args[i] ) );
-				}
-				g_pScriptVM->SetValue( "args", varTable );
-
-				pPlayer->CallScriptFunction( "ClientCommand", &functionReturn );
-
-				g_pScriptVM->ClearValue( "command" );
-				g_pScriptVM->ClearValue( "args" );
-				g_pScriptVM->ReleaseValue( varTable );
-
-				if (functionReturn.m_bool)
-					return;
-			}
-#endif
 			if ( Q_strlen( pCmd ) > 128 )
 			{
 				ClientPrint( pPlayer, HUD_PRINTCONSOLE, "Console command too long.\n" );

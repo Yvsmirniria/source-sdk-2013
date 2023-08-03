@@ -43,6 +43,9 @@ extern ConVar sk_plr_num_shotgun_pellets;
 //Whether or not the combine should spawn health on death
 ConVar	combine_spawn_health( "combine_spawn_health", "1" );
 
+ConVar  add_hunter_prob( "add_hunter_prob", "0", 0,
+	"Every combine soldier has this chance to spawn a hunter" );
+
 LINK_ENTITY_TO_CLASS( npc_combine_s, CNPC_CombineS );
 
 
@@ -84,7 +87,62 @@ void CNPC_CombineS::Spawn( void )
 	{
 		Msg( "Soldier %s is set to use march anim, but is not an efficient AI. The blended march anim can only be used for dead-ahead walks!\n", GetDebugName() );
 	}
+
+
+	// Maybe spawn a hunter if the player wants hunters
+	if ( add_hunter_prob.GetFloat() > 0 )
+	{
+		if (RandomFloat() <= add_hunter_prob.GetFloat())
+		{
+			// one more check - don't spawn a hunter if there's already two nearby
+			int nearby_hunters = 0;
+			CBaseEntity *pSearch[32];
+			int nNumEnemies = UTIL_EntitiesInSphere( pSearch, ARRAYSIZE( pSearch ), GetAbsOrigin(), 1000, FL_NPC );
+
+			for (int i = 0; i < nNumEnemies && nearby_hunters < 2; i++)
+			{
+				// We only care about hunters
+				if (pSearch[i] == NULL || pSearch[i]->Classify() != CLASS_COMBINE_HUNTER )
+					continue;
+
+				++nearby_hunters;
+			}
+			if (nearby_hunters > 2) 
+			{
+				return;
+			}
+
+			// Yep, spawn a hunter
+			CBaseEntity* pent = CreateEntityByName( "npc_hunter" );
+			CAI_BaseNPC* pHunter = dynamic_cast<CAI_BaseNPC*>(pent);
+			if (!pHunter)
+				return;
+
+			pHunter->Precache(); // should already be precached from the combine soldier's precache
+
+			Vector vecHunterOrigin;
+			int attempts = 5;
+			while (attempts > 0)
+			{
+				if (CAI_BaseNPC::FindSpotForNPCInRadius(
+					&vecHunterOrigin, GetAbsOrigin(), pHunter, 220 - (attempts * 30), true ) &&
+					pHunter->CanPlantHere(vecHunterOrigin))
+				{
+					// found a spot
+					pHunter->SetAbsOrigin( vecHunterOrigin );
+					pHunter->AddSpawnFlags( SF_NPC_GAG ); // no FALL_TO_GROUND, i.e. teleport to ground
+
+					pHunter->Spawn();
+					break;
+				}
+				else {
+					attempts--;
+				}
+			}
+		}
+	}
 #endif
+
 }
 
 //-----------------------------------------------------------------------------
@@ -96,12 +154,7 @@ void CNPC_CombineS::Precache()
 {
 	const char *pModelName = STRING( GetModelName() );
 
-#ifdef MAPBASE
-	// Need to do this for dirt variant
-	if( !Q_strnicmp( pModelName, "models/combine_super_sold", 25 ) )
-#else
 	if( !Q_stricmp( pModelName, "models/combine_super_soldier.mdl" ) )
-#endif
 	{
 		m_fIsElite = true;
 	}
@@ -121,27 +174,25 @@ void CNPC_CombineS::Precache()
 	UTIL_PrecacheOther( "weapon_frag" );
 	UTIL_PrecacheOther( "item_ammo_ar2_altfire" );
 
+	if (add_hunter_prob.GetFloat() > 0)
+	{
+		UTIL_PrecacheOther( "npc_hunter" );
+	}
+
 	BaseClass::Precache();
 }
 
 
 void CNPC_CombineS::DeathSound( const CTakeDamageInfo &info )
 {
-#ifdef COMBINE_SOLDIER_USES_RESPONSE_SYSTEM
-	AI_CriteriaSet set;
-	ModifyOrAppendDamageCriteria(set, info);
-	SpeakIfAllowed( TLK_CMB_DIE, set, SENTENCE_PRIORITY_INVALID, SENTENCE_CRITERIA_ALWAYS );
-#else
 	// NOTE: The response system deals with this at the moment
 	if ( GetFlags() & FL_DISSOLVING )
 		return;
 
 	GetSentences()->Speak( "COMBINE_DIE", SENTENCE_PRIORITY_INVALID, SENTENCE_CRITERIA_ALWAYS ); 
-#endif
 }
 
 
-#ifndef MAPBASE // Moved to CAI_GrenadeUser
 //-----------------------------------------------------------------------------
 // Purpose: Soldiers use CAN_RANGE_ATTACK2 to indicate whether they can throw
 //			a grenade. Because they check only every half-second or so, this
@@ -163,7 +214,6 @@ void CNPC_CombineS::ClearAttackConditions( )
 		SetCondition( COND_CAN_RANGE_ATTACK2 );
 	}
 }
-#endif
 
 void CNPC_CombineS::PrescheduleThink( void )
 {
@@ -320,15 +370,7 @@ void CNPC_CombineS::Event_Killed( const CTakeDamageInfo &info )
 			if ( HasSpawnFlags( SF_COMBINE_NO_AR2DROP ) == false )
 #endif
 			{
-#ifdef MAPBASE
-				CBaseEntity *pItem;
-				if (GetActiveWeapon() && FClassnameIs(GetActiveWeapon(), "weapon_smg1"))
-					pItem = DropItem( "item_ammo_smg1_grenade", WorldSpaceCenter()+RandomVector(-4,4), RandomAngle(0,360) );
-				else
-					pItem = DropItem( "item_ammo_ar2_altfire", WorldSpaceCenter()+RandomVector(-4,4), RandomAngle(0,360) );
-#else
 				CBaseEntity *pItem = DropItem( "item_ammo_ar2_altfire", WorldSpaceCenter()+RandomVector(-4,4), RandomAngle(0,360) );
-#endif
 
 				if ( pItem )
 				{

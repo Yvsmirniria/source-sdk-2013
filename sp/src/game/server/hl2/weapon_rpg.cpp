@@ -28,6 +28,10 @@
 #include "rumble_shared.h"
 #include "gamestats.h"
 
+// for airboat rockets
+#include "vehicle_base.h"
+#include "npc_strider.h"
+
 #ifdef PORTAL
 	#include "portal_util_shared.h"
 #endif
@@ -43,10 +47,6 @@
 
 static ConVar sk_apc_missile_damage("sk_apc_missile_damage", "15");
 ConVar rpg_missle_use_custom_detonators( "rpg_missle_use_custom_detonators", "1" );
-#ifdef MAPBASE
-ConVar weapon_rpg_use_old_behavior( "weapon_rpg_use_old_behavior", "0" );
-ConVar weapon_rpg_fire_rate( "weapon_rpg_fire_rate", "4.0" );
-#endif
 
 #define APC_MISSILE_DAMAGE	sk_apc_missile_damage.GetFloat()
 
@@ -131,6 +131,7 @@ CMissile::CMissile()
 {
 	m_hRocketTrail = NULL;
 	m_bCreateDangerSounds = false;
+	m_flRocketSpeed = RPG_SPEED;
 }
 
 CMissile::~CMissile()
@@ -268,7 +269,7 @@ void CMissile::AccelerateThink( void )
 	// SetEffects( EF_LIGHT );
 
 	AngleVectors( GetLocalAngles(), &vecForward );
-	SetAbsVelocity( vecForward * RPG_SPEED );
+	SetAbsVelocity( vecForward * m_flRocketSpeed );
 
 	SetThink( &CMissile::SeekThink );
 	SetNextThink( gpGlobals->curtime + 0.1f );
@@ -451,7 +452,7 @@ void CMissile::IgniteThink( void )
 	EmitSound( "Missile.Ignite" );
 
 	AngleVectors( GetLocalAngles(), &vecForward );
-	SetAbsVelocity( vecForward * RPG_SPEED );
+	SetAbsVelocity( vecForward * m_flRocketSpeed );
 
 	SetThink( &CMissile::SeekThink );
 	SetNextThink( gpGlobals->curtime );
@@ -1370,6 +1371,252 @@ void CAPCMissile::ComputeActualDotPosition( CLaserDot *pLaserDot, Vector *pActua
 //	NDebugOverlay::Cross3D( *pActualDotPosition, -Vector(4,4,4), Vector(4,4,4), 255, 0, 0, true, 0.05f );
 }
 
+//=============================================================================
+// Special Homing Missile
+//=============================================================================
+#define HOMING_MISSILE_LAUNCH_VEL 300
+
+BEGIN_DATADESC( CHomingMissile )
+
+DEFINE_FIELD( m_hTarget,      FIELD_EHANDLE ),
+DEFINE_FIELD( m_vecTargetPos, FIELD_POSITION_VECTOR ),
+DEFINE_FIELD( m_nIndex,       FIELD_INTEGER ),
+
+DEFINE_THINKFUNC( SeekThink ),
+
+DEFINE_FUNCTION( MissileTouch ),
+DEFINE_FUNCTION( SeekThink ),
+
+END_DATADESC()
+
+LINK_ENTITY_TO_CLASS( homing_missile, CHomingMissile );
+
+CHomingMissile *CHomingMissile::Create( 
+		const Vector &vecOrigin, 
+		const QAngle &vecAngles, 
+		CBaseEntity *pentOwner,
+		CBaseEntity *pentTarget,
+		int nIndex )
+{
+	CHomingMissile *pMissile = 
+		(CHomingMissile *)CBaseEntity::Create( 
+		        "homing_missile", 
+				vecOrigin, 
+				vecAngles,
+				pentOwner );
+
+	Vector vecVelocity;
+	AngleVectors( pentOwner->GetLocalAngles(), &vecVelocity );
+	VectorScale( vecVelocity , pMissile->m_flRocketSpeed, vecVelocity );
+
+	pMissile->SetOwnerEntity( pentOwner );
+	pMissile->Spawn();
+	pMissile->SetAbsVelocity( vecVelocity );
+	pMissile->AddFlag( FL_NOTARGET );
+	pMissile->AddEffects( EF_NOSHADOW );
+	pMissile->m_flHomingSpeed = RPG_HOMING_SPEED;
+
+	pMissile->SetTarget( pentTarget );
+	pMissile->SetIndex( nIndex );
+	pMissile->SetNextThink( gpGlobals->curtime );
+	pMissile->SetDamage( 100.0f ); // Normal RPG is 200 - bit too high
+	pMissile->SetSpawnTime( gpGlobals->curtime );
+
+	pMissile->SetThink( &CHomingMissile::SeekThink );
+	pMissile->SetTouch( &CHomingMissile::MissileTouch );
+	return pMissile;
+}
+
+void CHomingMissile::SetTarget( CBaseEntity* pentTarget )
+{
+	m_hTarget = pentTarget;
+}
+
+void CHomingMissile::SetIndex( int nIndex )
+{
+	m_nIndex = nIndex;
+}
+
+void CHomingMissile::SeekThink()
+{
+	const bool debug_seek = false;
+
+	if (gpGlobals->curtime - m_flSpawnTime > 30)
+	{
+		// If we haven't hit the target within 30 seconds, 
+		// we're probably not going to. Probably orbiting something 
+		// we shouldn't have targeted in the first place. 
+		Explode();
+		return;
+	}
+
+	//If we have a target
+	CBaseEntity* pentTarget = m_hTarget.Get();
+	if (pentTarget == NULL)
+	{
+		//Think as soon as possible
+		SetNextThink( gpGlobals->curtime );
+		return;
+	}
+
+	if (debug_seek)
+		Msg( "Missile[%d] has a target (%s) and is thinking about hitting it\n",
+			m_nIndex, pentTarget->GetClassname() );
+
+	// Aiming for the APC's origin almost always hits the
+	// bridge or cliff it's on, so aim for its center
+	if (pentTarget->ClassMatches( "prop_vehicle_apc" ))
+	{
+		m_vecTargetPos = pentTarget->WorldSpaceCenter();
+	} 
+	else if (pentTarget->ClassMatches( "npc_strider" ))
+	{
+		// Won't hit a strider if aiming for it's origin or worldspace centre.
+		// Luckily it has a special method to get where it actually is
+		CNPC_Strider* pStrider = dynamic_cast<CNPC_Strider*>(pentTarget);
+		if (pStrider)
+			m_vecTargetPos = pStrider->GetAdjustedOrigin();
+	}
+	else
+	    m_vecTargetPos = pentTarget->GetAbsOrigin();
+
+
+	// Slowly ramp up the homing speed to avoid circling target
+	// double over 5 seconds
+	m_flHomingSpeed += RPG_HOMING_SPEED * gpGlobals->frametime / 5;
+    
+	Vector	vTargetDir;
+	VectorSubtract( m_vecTargetPos, GetAbsOrigin(), vTargetDir );
+	float flDist = VectorNormalize( vTargetDir );
+
+	Vector	vDir = GetAbsVelocity();
+	float	flSpeed = VectorNormalize( vDir );
+	Vector	vNewVelocity = vDir;
+	if (gpGlobals->frametime > 0.0f)
+	{
+		if (flSpeed != 0)
+		{
+			vNewVelocity = (m_flHomingSpeed * vTargetDir) + ((1 - m_flHomingSpeed) * vDir);
+
+			// This computation may happen to cancel itself out exactly. If so, slam to targetdir.
+			if (VectorNormalize( vNewVelocity ) < 1e-3)
+			{
+				vNewVelocity = (flDist != 0) ? vTargetDir : vDir;
+			}
+		}
+		else
+		{
+			vNewVelocity = vTargetDir;
+		}
+	}
+
+	QAngle	finalAngles;
+	VectorAngles( vNewVelocity, finalAngles );
+	SetAbsAngles( finalAngles );
+
+	vNewVelocity *= flSpeed;
+	SetAbsVelocity( vNewVelocity );
+
+	if (debug_seek)
+		Msg( "Missile[%d] adjusted velocity to %0f %0f %0f\n",
+		m_nIndex, vNewVelocity.x, vNewVelocity.y, vNewVelocity.z );
+
+	if (GetAbsVelocity() == vec3_origin)
+	{
+		// Strange circumstances have brought this missile to halt. Just blow it up.
+		if (debug_seek)
+		    Msg( "Missile exploding because stopped\n" );
+		Explode();
+		return;
+	}
+	
+	// Think as soon as possible
+	SetThink( &CHomingMissile::SeekThink );
+	SetNextThink( gpGlobals->curtime );
+}
+
+// Tell the airboat that launched us to cancel targeting.
+// It will tell the client class to stop marking the target
+// on the HUD, and allow the target to be targeted again if
+// it's still alive
+void CHomingMissile::Explode()
+{
+	CPropVehicleDriveable* launcher = 
+		    dynamic_cast<CPropVehicleDriveable*>(m_hOwner.Get());
+
+	if ( launcher )
+	{
+		launcher->CancelTarget( m_nIndex );
+	}
+	else {
+		// Homing missile could be fired from weapon_egar
+		CWeaponEGAR* egar = dynamic_cast<CWeaponEGAR*>(m_hOwner.Get());
+		if (egar) {
+			egar->CancelTarget( m_nIndex );
+		}
+	}
+	BaseClass::Explode();
+}
+
+void CHomingMissile::MissileTouch( CBaseEntity *pOther )
+{
+	Assert( pOther );
+
+	bool debug_touch = false;
+
+	// Don't touch triggers (but DO hit weapons)
+	if (pOther->IsSolidFlagSet( FSOLID_TRIGGER | FSOLID_VOLUME_CONTENTS ) && pOther->GetCollisionGroup() != COLLISION_GROUP_WEAPON)
+	{
+		// Some NPCs are triggers that can take damage (like antlion grubs). We should hit them.
+		if ((pOther->m_takedamage == DAMAGE_NO) || (pOther->m_takedamage == DAMAGE_EVENTS_ONLY))
+			return;
+	}
+
+	if (pOther->ClassMatches( MAKE_STRING( "player" ) ) ||
+		pOther->ClassMatches( MAKE_STRING( "weapon_egar" ) ) ) 
+	{
+		if (debug_touch)
+		    Msg( "Missile ignoring collision with %s\n", pOther->GetClassname() );
+		return;
+	}
+
+	if (pOther->ClassMatches( MAKE_STRING( "npc_bullseye" ) ))
+	{
+		// Workaround for "rocket collides with npc_bullseye" issue
+		pOther->AddSolidFlags( FSOLID_NOT_SOLID );
+		if (debug_touch)
+			Msg( "Missile ignoring collision with %s\n", pOther->GetClassname() );
+		return;
+	}
+
+	if (debug_touch)
+	    Msg( "Missile exploding because hit %s\n", pOther->GetClassname() );
+
+	Explode();
+}
+
+// Override the takedamage func to ignore damage for a short time after firing.
+// This is to stop the player getting blown up by their own rockets when under fire.
+#define MISSILE_INV_TIME 0.25f
+int		CHomingMissile::OnTakeDamage_Alive( const CTakeDamageInfo &info )
+{
+	if (gpGlobals->curtime - m_flSpawnTime > MISSILE_INV_TIME)
+	{
+		return BaseClass::OnTakeDamage_Alive( info );
+	}
+	return 0;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Causes the missile to spiral to the ground and explode, due to damage
+//-----------------------------------------------------------------------------
+
+void CHomingMissile::SetOwnerEntity( CBaseEntity* pentOwner )
+{
+	m_hOwner = pentOwner;
+}
+
+
 #define	RPG_BEAM_SPRITE		"effects/laser1_noz.vmt"
 #define	RPG_LASER_SPRITE	"sprites/redglow1.vmt"
 
@@ -1399,22 +1646,10 @@ PRECACHE_WEAPON_REGISTER(weapon_rpg);
 acttable_t	CWeaponRPG::m_acttable[] = 
 {
 	{ ACT_RANGE_ATTACK1, ACT_RANGE_ATTACK_RPG, true },
-#if EXPANDED_HL2_WEAPON_ACTIVITIES
-	{ ACT_RANGE_AIM_LOW,			ACT_RANGE_AIM_RPG_LOW,			false },
-	{ ACT_RANGE_ATTACK1_LOW,		ACT_RANGE_ATTACK_RPG_LOW,		false },
-	{ ACT_GESTURE_RANGE_ATTACK1,	ACT_GESTURE_RANGE_ATTACK_RPG,	false },
-#endif
 
-#ifdef MAPBASE
-	// Readiness activities should not be required
-	{ ACT_IDLE_RELAXED,				ACT_IDLE_RPG_RELAXED,			false },
-	{ ACT_IDLE_STIMULATED,			ACT_IDLE_ANGRY_RPG,				false },
-	{ ACT_IDLE_AGITATED,			ACT_IDLE_ANGRY_RPG,				false },
-#else
 	{ ACT_IDLE_RELAXED,				ACT_IDLE_RPG_RELAXED,			true },
 	{ ACT_IDLE_STIMULATED,			ACT_IDLE_ANGRY_RPG,				true },
 	{ ACT_IDLE_AGITATED,			ACT_IDLE_ANGRY_RPG,				true },
-#endif
 
 	{ ACT_IDLE,						ACT_IDLE_RPG,					true },
 	{ ACT_IDLE_ANGRY,				ACT_IDLE_ANGRY_RPG,				true },
@@ -1423,31 +1658,6 @@ acttable_t	CWeaponRPG::m_acttable[] =
 	{ ACT_RUN,						ACT_RUN_RPG,					true },
 	{ ACT_RUN_CROUCH,				ACT_RUN_CROUCH_RPG,				true },
 	{ ACT_COVER_LOW,				ACT_COVER_LOW_RPG,				true },
-
-#if EXPANDED_HL2_WEAPON_ACTIVITIES
-	{ ACT_ARM,						ACT_ARM_RPG,					false },
-	{ ACT_DISARM,					ACT_DISARM_RPG,					false },
-#endif
-
-#if EXPANDED_HL2_COVER_ACTIVITIES
-	{ ACT_RANGE_AIM_MED,			ACT_RANGE_AIM_RPG_MED,			false },
-	{ ACT_RANGE_ATTACK1_MED,		ACT_RANGE_ATTACK_RPG_MED,		false },
-#endif
-
-#ifdef MAPBASE
-	// HL2:DM activities (for third-person animations in SP)
-	{ ACT_HL2MP_IDLE,                    ACT_HL2MP_IDLE_RPG,                    false },
-	{ ACT_HL2MP_RUN,                    ACT_HL2MP_RUN_RPG,                    false },
-	{ ACT_HL2MP_IDLE_CROUCH,            ACT_HL2MP_IDLE_CROUCH_RPG,            false },
-	{ ACT_HL2MP_WALK_CROUCH,            ACT_HL2MP_WALK_CROUCH_RPG,            false },
-	{ ACT_HL2MP_GESTURE_RANGE_ATTACK,    ACT_HL2MP_GESTURE_RANGE_ATTACK_RPG,    false },
-	{ ACT_HL2MP_GESTURE_RELOAD,            ACT_HL2MP_GESTURE_RELOAD_RPG,        false },
-	{ ACT_HL2MP_JUMP,                    ACT_HL2MP_JUMP_RPG,                    false },
-#if EXPANDED_HL2DM_ACTIVITIES
-	{ ACT_HL2MP_WALK,					ACT_HL2MP_WALK_RPG,						false },
-	{ ACT_HL2MP_GESTURE_RANGE_ATTACK2,	ACT_HL2MP_GESTURE_RANGE_ATTACK2_RPG,    false },
-#endif
-#endif
 };
 
 IMPLEMENT_ACTTABLE(CWeaponRPG);
@@ -1596,54 +1806,6 @@ void CWeaponRPG::Operator_HandleAnimEvent( animevent_t *pEvent, CBaseCombatChara
 	}
 }
 
-#ifdef MAPBASE
-//-----------------------------------------------------------------------------
-// Purpose: 
-//-----------------------------------------------------------------------------
-void CWeaponRPG::Operator_ForceNPCFire( CBaseCombatCharacter *pOperator, bool bSecondary )
-{
-	if ( m_hMissile != NULL )
-		return;
-
-	Vector muzzlePoint, vecShootDir;
-	QAngle	angShootDir;
-	GetAttachment( LookupAttachment( "muzzle" ), muzzlePoint, angShootDir );
-	AngleVectors( angShootDir, &vecShootDir );
-
-	// look for a better launch location
-	Vector altLaunchPoint;
-	if (GetAttachment( "missile", altLaunchPoint ))
-	{
-		// check to see if it's relativly free
-		trace_t tr;
-		AI_TraceHull( altLaunchPoint, altLaunchPoint + vecShootDir * (10.0f*12.0f), Vector( -24, -24, -24 ), Vector( 24, 24, 24 ), MASK_NPCSOLID, NULL, &tr );
-
-		if( tr.fraction == 1.0)
-		{
-			muzzlePoint = altLaunchPoint;
-		}
-	}
-
-	m_hMissile = CMissile::Create( muzzlePoint, angShootDir, pOperator->edict() );
-	m_hMissile->m_hOwner = this;
-
-	// NPCs always get a grace period
-	m_hMissile->SetGracePeriod( 0.5 );
-
-	pOperator->DoMuzzleFlash();
-
-	WeaponSound( SINGLE_NPC );
-
-	// Make sure our laserdot is off
-	m_bGuiding = false;
-
-	if ( m_hLaserDot )
-	{
-		m_hLaserDot->TurnOff();
-	}
-}
-#endif
-
 //-----------------------------------------------------------------------------
 // Purpose: 
 //-----------------------------------------------------------------------------
@@ -1719,10 +1881,6 @@ void CWeaponRPG::PrimaryAttack( void )
 
 	SendWeaponAnim( ACT_VM_PRIMARYATTACK );
 	WeaponSound( SINGLE );
-	
-#ifdef MAPBASE
-	pOwner->SetAnimation( PLAYER_ATTACK1 );
-#endif
 
 	pOwner->RumbleEffect( RUMBLE_SHOTGUN_SINGLE, 0, RUMBLE_FLAG_RESTART );
 
@@ -2132,20 +2290,7 @@ bool CWeaponRPG::WeaponLOSCondition( const Vector &ownerPos, const Vector &targe
 			Vector vecShootDir = npcOwner->GetActualShootTrajectory( vecMuzzle );
 
 			// Make sure I have a good 10 feet of wide clearance in front, or I'll blow my teeth out.
-#ifdef MAPBASE
-			// Oh, and don't collide with ourselves or our owner. That would be stupid.
-			if (!weapon_rpg_use_old_behavior.GetBool())
-			{
-				CTraceFilterSkipTwoEntities pTraceFilter( this, GetOwner(), COLLISION_GROUP_NONE );
-				AI_TraceHull( vecMuzzle, vecMuzzle + vecShootDir * (10.0f*12.0f), Vector( -24, -24, -24 ), Vector( 24, 24, 24 ), MASK_NPCSOLID, &pTraceFilter, &tr );
-			}
-			else
-			{
-#endif
 			AI_TraceHull( vecMuzzle, vecMuzzle + vecShootDir * (10.0f*12.0f), Vector( -24, -24, -24 ), Vector( 24, 24, 24 ), MASK_NPCSOLID, NULL, &tr );
-#ifdef MAPBASE
-			}
-#endif
 
 			if( tr.fraction != 1.0f )
 				bResult = false;
@@ -2195,20 +2340,7 @@ int CWeaponRPG::WeaponRangeAttack1Condition( float flDot, float flDist )
 		Vector vecShootDir = pOwner->GetActualShootTrajectory( vecMuzzle );
 
 		// Make sure I have a good 10 feet of wide clearance in front, or I'll blow my teeth out.
-#ifdef MAPBASE
-		// Oh, and don't collide with ourselves or our owner. That would be stupid.
-		if (!weapon_rpg_use_old_behavior.GetBool())
-		{
-			CTraceFilterSkipTwoEntities pTraceFilter( this, GetOwner(), COLLISION_GROUP_NONE );
-			AI_TraceHull( vecMuzzle, vecMuzzle + vecShootDir * (10.0f*12.0f), Vector( -24, -24, -24 ), Vector( 24, 24, 24 ), MASK_NPCSOLID, &pTraceFilter, &tr );
-		}
-		else
-		{
-#endif
 		AI_TraceHull( vecMuzzle, vecMuzzle + vecShootDir * (10.0f*12.0f), Vector( -24, -24, -24 ), Vector( 24, 24, 24 ), MASK_NPCSOLID, NULL, &tr );
-#ifdef MAPBASE
-		}
-#endif
 
 		if( tr.fraction != 1.0 )
 		{
@@ -2331,23 +2463,6 @@ void CWeaponRPG::UpdateLaserEffects( void )
 		m_hLaserMuzzleSprite->SetScale( 0.1f + random->RandomFloat( -0.025f, 0.025f ) );
 	}
 }
-
-#ifdef MAPBASE
-//-----------------------------------------------------------------------------
-// Purpose: 
-//-----------------------------------------------------------------------------
-bool CWeaponRPG::SupportsBackupActivity(Activity activity)
-{
-	// NPCs shouldn't use their SMG activities to aim and fire RPGs while running.
-	if (activity == ACT_RUN_AIM ||
-		activity == ACT_WALK_AIM ||
-		activity == ACT_RUN_CROUCH_AIM ||
-		activity == ACT_WALK_CROUCH_AIM)
-		return false;
-
-	return true;
-}
-#endif
 
 //=============================================================================
 // Laser Dot
@@ -2510,3 +2625,4 @@ void CLaserDot::MakeInvisible( void )
 {
 	BaseClass::TurnOff();
 }
+

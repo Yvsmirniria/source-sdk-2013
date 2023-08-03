@@ -589,10 +589,6 @@ class CTriggerWateryDeath : public CBaseTrigger
 public:
 	DECLARE_DATADESC();
 
-#ifdef MAPBASE
-	CTriggerWateryDeath();
-#endif
-
 	void Spawn( void );
 	void Precache( void );
 	void Touch( CBaseEntity *pOther );
@@ -618,13 +614,6 @@ private:
 	CUtlVector< float >	m_flEntityKillTimes;
 	float				m_flNextPullSound;
 	float				m_flPainValue;
-
-#ifdef MAPBASE
-	float				m_flBiteInterval;
-	float				m_flPainStep;
-	float				m_flMaxPain;
-	COutputInt			m_OnDamage;
-#endif
 };
 
 BEGIN_DATADESC( CTriggerWateryDeath )
@@ -632,12 +621,6 @@ BEGIN_DATADESC( CTriggerWateryDeath )
 	DEFINE_UTLVECTOR( m_hLeeches, FIELD_EHANDLE ),
 	DEFINE_FIELD( m_flNextPullSound, FIELD_TIME ),
 	DEFINE_FIELD( m_flPainValue, FIELD_FLOAT ),
-#ifdef MAPBASE
-	DEFINE_KEYFIELD( m_flBiteInterval, FIELD_FLOAT, "BiteInterval" ),
-	DEFINE_KEYFIELD( m_flPainStep, FIELD_FLOAT, "PainStep" ),
-	DEFINE_KEYFIELD( m_flMaxPain, FIELD_FLOAT, "MaxPain" ),
-	DEFINE_OUTPUT( m_OnDamage, "OnDamage" ),
-#endif
 END_DATADESC()
 
 
@@ -647,15 +630,6 @@ LINK_ENTITY_TO_CLASS( trigger_waterydeath, CTriggerWateryDeath );
 #define WD_KILLTIME_NEXT_BITE	0.3
 #define WD_PAINVALUE_STEP 2.0
 #define WD_MAX_DAMAGE 15.0f
-
-#ifdef MAPBASE
-CTriggerWateryDeath::CTriggerWateryDeath()
-{
-	m_flBiteInterval = WD_KILLTIME_NEXT_BITE;
-	m_flPainStep = WD_PAINVALUE_STEP;
-	m_flMaxPain = WD_MAX_DAMAGE;
-}
-#endif
 
 //-----------------------------------------------------------------------------
 // Purpose: Called when spawning, after keyvalues have been handled.
@@ -733,23 +707,6 @@ void CTriggerWateryDeath::Touch( CBaseEntity *pOther )
 	{
 		//EmitSound( filter, entindex(), "WateryDeath.Bite", &pOther->GetAbsOrigin() );
 		// Kill it
-#ifdef MAPBASE
-		if ( pOther->IsPlayer() )
-		{
-			m_flPainValue = MIN( m_flPainValue + m_flPainStep, m_flMaxPain );
-		}
-		else
-		{
-			m_flPainValue = m_flMaxPain;
-		}
-
-		// Do nothing if there is no damage
-		if (m_flPainValue <= 0.0f)
-		{
-			m_flEntityKillTimes[iIndex] = gpGlobals->curtime + m_flBiteInterval;
-			return;
-		}
-#else
 		if ( pOther->IsPlayer() )
 		{
 			m_flPainValue = MIN( m_flPainValue + WD_PAINVALUE_STEP, WD_MAX_DAMAGE );
@@ -758,7 +715,6 @@ void CTriggerWateryDeath::Touch( CBaseEntity *pOther )
 		{
 			m_flPainValue = WD_MAX_DAMAGE;
 		}
-#endif
 
 		// Use DMG_GENERIC & make the target inflict the damage on himself.
 		// This ensures that if the target is the player, the damage isn't modified by skill
@@ -767,13 +723,7 @@ void CTriggerWateryDeath::Touch( CBaseEntity *pOther )
 		GuessDamageForce( &info, (pOther->GetAbsOrigin() - GetAbsOrigin()), pOther->GetAbsOrigin() );
 		pOther->TakeDamage( info );
 
-#ifdef MAPBASE
-		m_OnDamage.Set(m_flPainValue, pOther, this);
-
-		m_flEntityKillTimes[iIndex] = gpGlobals->curtime + m_flBiteInterval;
-#else
 		m_flEntityKillTimes[iIndex] = gpGlobals->curtime + WD_KILLTIME_NEXT_BITE;
-#endif
 	}
 }
 

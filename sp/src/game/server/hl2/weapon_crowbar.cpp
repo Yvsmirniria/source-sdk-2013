@@ -24,6 +24,12 @@
 
 ConVar    sk_plr_dmg_crowbar		( "sk_plr_dmg_crowbar","0");
 ConVar    sk_npc_dmg_crowbar		( "sk_npc_dmg_crowbar","0");
+ConVar    quick_melee_delay         ( "quick_melee_delay", "0.2", FCVAR_REPLICATED, "Time between swings when using quick melee" );
+
+static ConVar slash_attack_dmg( "slash_attack_dmg", "20" );
+static ConVar surge_attack_dmg( "surge_attack_dmg", "25" );
+
+#define SPEED_DMG_BONUS_THRESHOLD 275.0f;
 
 //-----------------------------------------------------------------------------
 // CWeaponCrowbar
@@ -42,29 +48,6 @@ acttable_t CWeaponCrowbar::m_acttable[] =
 	{ ACT_MELEE_ATTACK1,	ACT_MELEE_ATTACK_SWING, true },
 	{ ACT_IDLE,				ACT_IDLE_ANGRY_MELEE,	false },
 	{ ACT_IDLE_ANGRY,		ACT_IDLE_ANGRY_MELEE,	false },
-#if EXPANDED_HL2_WEAPON_ACTIVITIES
-	{ ACT_RUN,				ACT_RUN_MELEE,			false },
-	{ ACT_WALK,				ACT_WALK_MELEE,			false },
-
-	{ ACT_ARM,				ACT_ARM_MELEE,			false },
-	{ ACT_DISARM,			ACT_DISARM_MELEE,		false },
-#endif
-
-#ifdef MAPBASE
-	// HL2:DM activities (for third-person animations in SP)
-	{ ACT_RANGE_ATTACK1,                ACT_RANGE_ATTACK_SLAM, true },
-	{ ACT_HL2MP_IDLE,                    ACT_HL2MP_IDLE_MELEE,                    false },
-	{ ACT_HL2MP_RUN,                    ACT_HL2MP_RUN_MELEE,                    false },
-	{ ACT_HL2MP_IDLE_CROUCH,            ACT_HL2MP_IDLE_CROUCH_MELEE,            false },
-	{ ACT_HL2MP_WALK_CROUCH,            ACT_HL2MP_WALK_CROUCH_MELEE,            false },
-	{ ACT_HL2MP_GESTURE_RANGE_ATTACK,    ACT_HL2MP_GESTURE_RANGE_ATTACK_MELEE,    false },
-	{ ACT_HL2MP_GESTURE_RELOAD,            ACT_HL2MP_GESTURE_RELOAD_MELEE,            false },
-	{ ACT_HL2MP_JUMP,                    ACT_HL2MP_JUMP_MELEE,                    false },
-#if EXPANDED_HL2DM_ACTIVITIES
-	{ ACT_HL2MP_GESTURE_RANGE_ATTACK2,	ACT_HL2MP_GESTURE_RANGE_ATTACK2_MELEE,		false },
-	{ ACT_HL2MP_WALK,					ACT_HL2MP_WALK_MELEE,						false },
-#endif
-#endif
 };
 
 IMPLEMENT_ACTTABLE(CWeaponCrowbar);
@@ -76,6 +59,24 @@ CWeaponCrowbar::CWeaponCrowbar( void )
 {
 }
 
+float CWeaponCrowbar::GetRange( void )
+{
+	float bonus_range = 0;
+	if ((GetOwner() != NULL) && (GetOwner()->IsPlayer()))
+	{
+		CBasePlayer *pPlayer = ToBasePlayer( GetOwner() );
+		float playerVel;
+		if (!pPlayer->GetSmoothedVelocity().IsValid())
+			return CROWBAR_RANGE;
+
+		playerVel = (float)(pPlayer->GetSmoothedVelocity().Length());
+
+		// Add some bonus range for player's speed:
+		bonus_range = (clamp( playerVel - 240.0, 0.0, 260.0 ) / 8);
+	}
+	return CROWBAR_RANGE + bonus_range;
+}
+
 //-----------------------------------------------------------------------------
 // Purpose: Get the damage amount for the animation we're doing
 // Input  : hitActivity - currently played activity
@@ -83,10 +84,41 @@ CWeaponCrowbar::CWeaponCrowbar( void )
 //-----------------------------------------------------------------------------
 float CWeaponCrowbar::GetDamageForActivity( Activity hitActivity )
 {
-	if ( ( GetOwner() != NULL ) && ( GetOwner()->IsPlayer() ) )
-		return sk_plr_dmg_crowbar.GetFloat();
+	float baseDmg = sk_plr_dmg_crowbar.GetFloat();
 
-	return sk_npc_dmg_crowbar.GetFloat();
+	if ((GetOwner() != NULL) && (GetOwner()->IsPlayer()))
+	{
+
+		CBasePlayer *pPlayer = ToBasePlayer( GetOwner() );
+
+		if (pPlayer->m_nMeleeState == MELEE_SLASH )
+		{
+			baseDmg = slash_attack_dmg.GetFloat();
+		}
+		else if (pPlayer->m_nMeleeState == MELEE_SURGE_HIT)
+		{
+			baseDmg = surge_attack_dmg.GetFloat();
+		}
+
+		if (!pPlayer->GetSmoothedVelocity().IsValid())
+			return baseDmg;
+
+		float playerVel = (float)(pPlayer->GetSmoothedVelocity().Length());
+		/* Add some bonus damage for player's speed:
+		0 for <= 275,  excess 0
+		10 for 355,    excess 80
+		20 for 435,    excess 160
+		30 for >= 515  excess 240	*/
+		int bonus = (int)(clamp( playerVel - 240.0, 0.0, 240.0 ) / 8);
+
+		return baseDmg + bonus;
+	}
+	return baseDmg;
+}
+
+float CWeaponCrowbar::GetFireRate()
+{
+	return (m_nQuick > 0) ? quick_melee_delay.GetFloat() : CROWBAR_REFIRE;
 }
 
 //-----------------------------------------------------------------------------

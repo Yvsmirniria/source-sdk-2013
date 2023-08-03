@@ -146,4 +146,7 @@
 // UNDONE: Not used yet / may be deleted
 #define	MASK_DEADSOLID				(CONTENTS_SOLID|CONTENTS_PLAYERCLIP|CONTENTS_WINDOW|CONTENTS_GRATE)
 
+// Things that block player movement with lessclip on
+#define MASK_LESSCLIP               (CONTENTS_SOLID|CONTENTS_MOVEABLE|CONTENTS_MONSTER|CONTENTS_GRATE)
+
 #endif // BSPFLAGS_H

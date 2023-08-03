@@ -247,7 +247,7 @@ void CBaseDoor::Spawn()
 #ifdef HL1_DLL
 	SetSolid( SOLID_BSP );
 #else
-	if ( GetMoveParent() && GetRootMoveParent()->GetSolid() == SOLID_BSP )
+	if (GetMoveParent() && GetRootMoveParent()->GetSolid() == SOLID_BSP)
 	{
 		SetSolid( SOLID_BSP );
 	}
@@ -262,18 +262,18 @@ void CBaseDoor::Spawn()
 	AngleVectors( angMoveDir, &m_vecMoveDir );
 
 	SetModel( STRING( GetModelName() ) );
-	m_vecPosition1	= GetLocalOrigin();
+	m_vecPosition1 = GetLocalOrigin();
 
 	// Subtract 2 from size because the engine expands bboxes by 1 in all directions making the size too big
 	Vector vecOBB = CollisionProp()->OBBSize();
 	vecOBB -= Vector( 2, 2, 2 );
-	m_vecPosition2	= m_vecPosition1 + (m_vecMoveDir * (DotProductAbs( m_vecMoveDir, vecOBB ) - m_flLip));
+	m_vecPosition2 = m_vecPosition1 + (m_vecMoveDir * (DotProductAbs( m_vecMoveDir, vecOBB ) - m_flLip));
 
-	if ( !IsRotatingDoor() )
+	if (!IsRotatingDoor())
 	{
-		if ( ( m_eSpawnPosition == FUNC_DOOR_SPAWN_OPEN ) || HasSpawnFlags( SF_DOOR_START_OPEN_OBSOLETE ) )
+		if ((m_eSpawnPosition == FUNC_DOOR_SPAWN_OPEN) || HasSpawnFlags( SF_DOOR_START_OPEN_OBSOLETE ))
 		{	// swap pos1 and pos2, put door at pos2
-			UTIL_SetOrigin( this, m_vecPosition2);
+			UTIL_SetOrigin( this, m_vecPosition2 );
 			m_toggle_state = TS_AT_TOP;
 		}
 		else
@@ -282,30 +282,30 @@ void CBaseDoor::Spawn()
 		}
 	}
 
-	if (HasSpawnFlags(SF_DOOR_LOCKED))
+	if (HasSpawnFlags( SF_DOOR_LOCKED ))
 	{
 		m_bLocked = true;
 	}
 
 	SetMoveType( MOVETYPE_PUSH );
-	
+
 	if (m_flSpeed == 0)
 	{
 		m_flSpeed = 100;
 	}
-	
+
 	SetTouch( &CBaseDoor::DoorTouch );
 
-	if ( !FClassnameIs( this, "func_water" ) )
+	if (!FClassnameIs( this, "func_water" ))
 	{
-		if ( HasSpawnFlags(SF_DOOR_PASSABLE) )
+		if (HasSpawnFlags( SF_DOOR_PASSABLE ))
 		{
 			//normal door
 			AddEFlags( EFL_USE_PARTITION_WHEN_NOT_SOLID );
 			AddSolidFlags( FSOLID_NOT_SOLID );
 		}
 
-		if ( HasSpawnFlags( SF_DOOR_NONSOLID_TO_PLAYER ) )
+		if (HasSpawnFlags( SF_DOOR_NONSOLID_TO_PLAYER ))
 		{
 			SetCollisionGroup( COLLISION_GROUP_PASSABLE_DOOR );
 			// HACKHACK: Set this hoping that any children of the door that get blocked by the player
@@ -314,14 +314,14 @@ void CBaseDoor::Spawn()
 			// NOTE: This is necessary to prevent the player from blocking the wrecked train car in ep2_outland_01
 			AddFlag( FL_UNBLOCKABLE_BY_PLAYER );
 		}
-		if ( m_bIgnoreDebris )
+		if (m_bIgnoreDebris)
 		{
 			// both of these flags want to set the collision group and 
 			// there isn't a combo group
 			Assert( !HasSpawnFlags( SF_DOOR_NONSOLID_TO_PLAYER ) );
-			if ( HasSpawnFlags( SF_DOOR_NONSOLID_TO_PLAYER ) )
+			if (HasSpawnFlags( SF_DOOR_NONSOLID_TO_PLAYER ))
 			{
-				Warning("Door %s with conflicting collision settings, removing ignoredebris\n", GetDebugName() );
+				Warning( "Door %s with conflicting collision settings, removing ignoredebris\n", GetDebugName() );
 			}
 			else
 			{
@@ -330,12 +330,35 @@ void CBaseDoor::Spawn()
 		}
 	}
 
-	if ( ( m_eSpawnPosition == FUNC_DOOR_SPAWN_OPEN ) && HasSpawnFlags( SF_DOOR_START_OPEN_OBSOLETE ) )
+	if ((m_eSpawnPosition == FUNC_DOOR_SPAWN_OPEN) && HasSpawnFlags( SF_DOOR_START_OPEN_OBSOLETE ))
 	{
-		Warning("Door %s using obsolete 'Start Open' spawnflag with 'Spawn Position' set to 'Open'. Reverting to old behavior.\n", GetDebugName() );
+		Warning( "Door %s using obsolete 'Start Open' spawnflag with 'Spawn Position' set to 'Open'. Reverting to old behavior.\n", GetDebugName() );
 	}
 
 	CreateVPhysics();
+
+
+	// MobMod HACK for Black Mesa East doors.
+	// Still need to disable some player clips as well (func_brush class)
+	/*
+	if ( Q_strcmp( STRING( gpGlobals->mapname ), "d1_eli_01") == 0  &&
+		( Q_strcmp( STRING( GetEntityName() ), "inner_door" ) == 0 ||
+		  Q_strcmp( STRING( GetEntityName() ), "airlock_door") == 0 ||
+		  Q_strcmp( STRING( GetEntityName() ), "lab_exit_door_raven" ) == 0 ||
+		  Q_strcmp( STRING( GetEntityName() ), "lab_exit_door_raven2" ) == 0 ||
+		  Q_strcmp( STRING( GetEntityName() ), "airlock_south_door" ) == 0 ||
+		  Q_strcmp( STRING( GetEntityName() ), "airlock_south_doorb" ) == 0 || 
+		  Q_strcmp( STRING( GetEntityName() ), "ele_door_L" ) == 0 ||
+		  Q_strcmp( STRING( GetEntityName() ), "ele_door_R" ) == 0 ||
+		  Q_strcmp( STRING( GetEntityName() ), "ele_door_B_L" ) == 0 ||
+		  Q_strcmp( STRING( GetEntityName() ), "ele_door_B_R" ) == 0))
+	{
+		inputdata_t input_info;
+		input_info.pCaller = this;
+		input_info.pActivator = this;
+		ForceUnlock( input_info );
+		ForceOpen( input_info );
+    }*/
 
 #ifdef TF_DLL
 	if ( TFGameRules() && TFGameRules()->IsMultiplayer() )

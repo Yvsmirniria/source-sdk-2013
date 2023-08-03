@@ -52,6 +52,7 @@ public:
 	virtual int GetPrimaryAmmoClip() const = 0;
 	virtual bool PrimaryAmmoUsesClips() const = 0;
 	virtual int GetPrimaryAmmoCount() const = 0;
+	virtual int GetCurrentSpeed() const = 0;
 #endif
 };
 

@@ -20,6 +20,7 @@
 #define	CROWBAR_RANGE	75.0f
 #define	CROWBAR_REFIRE	0.4f
 
+
 //-----------------------------------------------------------------------------
 // CWeaponCrowbar
 //-----------------------------------------------------------------------------
@@ -34,23 +35,17 @@ public:
 
 	CWeaponCrowbar();
 
-	float		GetRange( void )		{	return	CROWBAR_RANGE;	}
-	float		GetFireRate( void )		{	return	CROWBAR_REFIRE;	}
+	float		GetRange( void );
+	float		GetFireRate( void );
 
 	void		AddViewKick( void );
 	float		GetDamageForActivity( Activity hitActivity );
 
 	virtual int WeaponMeleeAttack1Condition( float flDot, float flDist );
-	void		SecondaryAttack( void )	{	return;	}
+
 
 	// Animation event
 	virtual void Operator_HandleAnimEvent( animevent_t *pEvent, CBaseCombatCharacter *pOperator );
-
-#ifdef MAPBASE
-	// Don't use backup activities
-	acttable_t		*GetBackupActivityList() { return NULL; }
-	int				GetBackupActivityListCount() { return 0; }
-#endif
 
 private:
 	// Animation event handlers

@@ -273,14 +273,18 @@ float CBaseHLCombatWeapon::CalcViewmodelBob( void )
 	//Find the speed of the player
 	float speed = player->GetLocalVelocity().Length2D();
 
+	
+
 	//FIXME: This maximum speed value must come from the server.
 	//		 MaxSpeed() is not sufficient for dealing with sprinting - jdw
 
 	speed = clamp( speed, -320, 320 );
 
 	float bob_offset = RemapVal( speed, 0, 320, 0.0f, 1.0f );
+
+	float time_delta = (gpGlobals->curtime - lastbobtime);
 	
-	bobtime += ( gpGlobals->curtime - lastbobtime ) * bob_offset;
+	bobtime += time_delta * bob_offset;
 	lastbobtime = gpGlobals->curtime;
 
 	//Calculate the vertical bob
@@ -296,10 +300,43 @@ float CBaseHLCombatWeapon::CalcViewmodelBob( void )
 		cycle = M_PI + M_PI*(cycle-HL2_BOB_UP)/(1.0 - HL2_BOB_UP);
 	}
 	
+	
+
+
 	g_verticalBob = speed*0.005f;
 	g_verticalBob = g_verticalBob*0.3 + g_verticalBob*0.7*sin(cycle);
 
-	g_verticalBob = clamp( g_verticalBob, -7.0f, 4.0f );
+	
+
+	// Calculate the vertical bob kick
+	float speed_delta_z = player->GetLocalVelocity().z - m_flPrevPlayerVelZ;
+
+	// The bigger the accel upwards, the more the kick downwards
+	if (speed_delta_z > 30)
+	{
+		m_bTgtBobKickZ = true;
+	}
+	if (m_bTgtBobKickZ)
+	{
+		m_flBobKickZ -= 25 * time_delta; // 40 units/sec
+		if (g_verticalBob + m_flBobKickZ < -2.5)
+		{
+			// reached the lowest point
+			m_bTgtBobKickZ = false;
+		}
+	}
+	else if (m_flBobKickZ < 0) {
+		// decay the bob kick...
+		m_flBobKickZ += 13 * time_delta;
+	}
+	else {
+		m_flBobKickZ = 0;
+	}
+
+	g_verticalBob = clamp( g_verticalBob + m_flBobKickZ, -8.0f, 5.0f );
+
+	m_flPrevPlayerVelZ = player->GetLocalVelocity().z;
+
 
 	//Calculate the lateral bob
 	cycle = bobtime - (int)(bobtime/HL2_BOB_CYCLE_MAX*2)*HL2_BOB_CYCLE_MAX*2;
@@ -317,14 +354,6 @@ float CBaseHLCombatWeapon::CalcViewmodelBob( void )
 	g_lateralBob = speed*0.005f;
 	g_lateralBob = g_lateralBob*0.3 + g_lateralBob*0.7*sin(cycle);
 	g_lateralBob = clamp( g_lateralBob, -7.0f, 4.0f );
-
-#ifdef MAPBASE
-	if (GetBobScale() != 1.0f)
-	{
-		//g_verticalBob *= GetBobScale();
-		g_lateralBob *= GetBobScale();
-	}
-#endif
 	
 	//NOTENOTE: We don't use this return value in our case (need to restructure the calculation function setup!)
 	return 0.0f;
@@ -355,6 +384,22 @@ void CBaseHLCombatWeapon::AddViewmodelBob( CBaseViewModel *viewmodel, Vector &or
 
 	angles[ YAW ]	-= g_lateralBob  * 0.3f;
 
+	// special adjustment for crowbar slash attack
+	C_BasePlayer* pPlayer = ToBasePlayer( GetOwner() );
+	if ( pPlayer && pPlayer->m_nMeleeState == MELEE_SLASH &&
+		 FClassnameIs( STRING ( pPlayer->GetActiveWeapon() ), "weapon_crowbar" ) )
+	{
+		m_flRollAdj = 50.0f;
+	}
+	else 
+	{
+		m_flRollAdj = MAX( m_flRollAdj - (gpGlobals->frametime * 360), 0.0f );
+	}
+	angles[ROLL] += m_flRollAdj;
+	angles[YAW] -= m_flRollAdj / 4.0f;
+	if ( m_flBobKickZ < 5.0f && m_flBobKickZ > -5.0f )
+	    angles[PITCH] -= m_flBobKickZ;
+	
 	VectorMA( origin, g_lateralBob * 0.8f, right, origin );
 }
 

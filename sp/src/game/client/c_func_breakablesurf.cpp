@@ -323,8 +323,10 @@ static ITexture* GetBaseTexture( IMaterial* pMaterial )
 	bool foundVar;
 	IMaterialVar* pTextureVar = pMaterial->FindVar( "$basetexture", &foundVar, false );
 	if (!foundVar)
+	{
+		Warning( "Didn't find the basetexture for material %s", pMaterial->GetName() );
 		return 0;
-
+	}
 	return pTextureVar->GetTextureValue();
 }
 
